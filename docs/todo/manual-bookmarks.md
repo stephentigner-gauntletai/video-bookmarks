@@ -20,18 +20,18 @@
   - [x] Development workflow
 
 ### 2. Storage Layer Implementation
-- [ ] Create types/interfaces
-  - [ ] Define VideoBookmark interface
-  - [ ] Create storage utility types
-- [ ] Implement storage wrapper
-  - [ ] Setup chrome.storage.local utilities
-  - [ ] Create async storage operations
-- [ ] Build CRUD operations
-  - [ ] Create bookmark
-  - [ ] Read bookmark(s)
-  - [ ] Update bookmark
-  - [ ] Delete bookmark
-- [ ] Add storage error handling
+- [x] Create types/interfaces
+  - [x] Define VideoBookmark interface
+  - [x] Create storage utility types
+- [x] Implement storage wrapper
+  - [x] Setup chrome.storage.local utilities
+  - [x] Create async storage operations
+- [x] Build CRUD operations
+  - [x] Create bookmark
+  - [x] Read bookmark(s)
+  - [x] Update bookmark
+  - [x] Delete bookmark
+- [x] Add storage error handling
 
 ### 3. Basic Content Script Setup
 - [ ] Create content script entry point
