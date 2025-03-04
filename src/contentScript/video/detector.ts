@@ -1,6 +1,8 @@
 import { logger } from '../logger';
 import { debounce } from '../utils';
 import { YouTubePlayer, VideoMetadata, PlayerState, VideoEvents } from './types';
+import { VideoEventMonitor } from './events';
+import { BackgroundMessageType } from '../../background/types';
 
 /**
  * Class responsible for detecting and monitoring the YouTube player
@@ -11,8 +13,15 @@ export class VideoDetector {
   private player: YouTubePlayer | null = null;
   private events: Partial<VideoEvents> = {};
   private metadataCheckInterval: number | null = null;
+  private eventMonitor: VideoEventMonitor | null = null;
+  private tabId: number = -1;  // Initialize with invalid tab ID
 
-  private constructor() {}
+  private constructor() {
+    // Get current tab ID
+    chrome.tabs.getCurrent((tab) => {
+      this.tabId = tab?.id ?? -1;
+    });
+  }
 
   /**
    * Get the singleton instance
@@ -39,6 +48,10 @@ export class VideoDetector {
   public destroy(): void {
     this.stopObserving();
     this.clearMetadataCheck();
+    if (this.eventMonitor) {
+      this.eventMonitor.stop();
+      this.eventMonitor = null;
+    }
     this.player = null;
     logger.debug('Video detector destroyed');
   }
@@ -108,8 +121,25 @@ export class VideoDetector {
   private handlePlayerFound(player: YouTubePlayer): void {
     this.player = player;
     this.events.onPlayerFound?.(player);
+
+    // Initialize event monitor
+    this.eventMonitor = new VideoEventMonitor(player, this.tabId);
+    this.eventMonitor.start();
+
+    // Start metadata monitoring
     this.startMetadataCheck();
-    this.setupPlayerStateMonitoring();
+
+    // Notify background script
+    const videoData = player.getVideoData?.();
+    if (videoData) {
+      chrome.runtime.sendMessage({
+        type: BackgroundMessageType.VIDEO_DETECTED,
+        tabId: this.tabId,
+        videoId: videoData.video_id,
+        url: window.location.href,
+        title: videoData.title
+      });
+    }
   }
 
   /**
@@ -160,28 +190,6 @@ export class VideoDetector {
     } catch (error) {
       logger.error('Failed to extract video metadata', error);
     }
-  }
-
-  /**
-   * Setup monitoring of player state changes
-   */
-  private setupPlayerStateMonitoring(): void {
-    if (!this.player || !this.player.getPlayerState) return;
-
-    // Create a proxy to intercept state changes
-    const originalGetPlayerState = this.player.getPlayerState.bind(this.player);
-    let lastState = originalGetPlayerState();
-
-    this.player.getPlayerState = function(this: YouTubePlayer): number {
-      const currentState = originalGetPlayerState();
-      
-      if (currentState !== lastState) {
-        lastState = currentState;
-        VideoDetector.instance.events.onStateChange?.(currentState);
-      }
-
-      return currentState;
-    };
   }
 
   /**
