@@ -2,6 +2,7 @@ import { logger } from '../logger';
 import { debounce } from '../utils';
 import { YouTubePlayer, VideoMetadata, PlayerState, VideoEvents } from './types';
 import { VideoEventMonitor } from './events';
+import { VideoControls } from '../ui/controls';
 import { BackgroundMessageType } from '../../background/types';
 
 /**
@@ -14,6 +15,7 @@ export class VideoDetector {
   private events: Partial<VideoEvents> = {};
   private metadataCheckInterval: number | null = null;
   private eventMonitor: VideoEventMonitor | null = null;
+  private controls: VideoControls | null = null;
   private tabId: number = -1;  // Initialize with invalid tab ID
 
   private constructor() {
@@ -51,6 +53,10 @@ export class VideoDetector {
     if (this.eventMonitor) {
       this.eventMonitor.stop();
       this.eventMonitor = null;
+    }
+    if (this.controls) {
+      this.controls.destroy();
+      this.controls = null;
     }
     this.player = null;
     logger.debug('Video detector destroyed');
@@ -125,6 +131,12 @@ export class VideoDetector {
     // Initialize event monitor
     this.eventMonitor = new VideoEventMonitor(player, this.tabId);
     this.eventMonitor.start();
+
+    // Initialize UI controls
+    this.controls = VideoControls.getInstance(this.tabId);
+    this.controls.initialize(player).catch((error) => {
+      logger.error('Failed to initialize UI controls', error);
+    });
 
     // Start metadata monitoring
     this.startMetadataCheck();

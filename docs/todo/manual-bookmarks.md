@@ -99,17 +99,17 @@
 ## Phase 4: User Interface
 
 ### 9. UI Controls Integration
-- [ ] Create bookmark button
-  - [ ] Design button component
-  - [ ] Implement click handling
-  - [ ] Add state indicators
-- [ ] Add timestamp display
-  - [ ] Current position display
-  - [ ] Maximum position display
-- [ ] Implement status indicators
-  - [ ] Saving status
-  - [ ] Error states
-  - [ ] Success confirmation
+- [x] Create bookmark button
+  - [x] Design button component
+  - [x] Implement click handling
+  - [x] Add state indicators
+- [x] Add timestamp display
+  - [x] Current position display
+  - [x] Maximum position display
+- [x] Implement status indicators
+  - [x] Saving status
+  - [x] Error states
+  - [x] Success confirmation
 
 ### 10. Popup UI Development
 - [ ] Create basic UI structure
