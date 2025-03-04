@@ -28,21 +28,28 @@ export enum BackgroundMessageType {
   VIDEO_DETECTED = 'VIDEO_DETECTED',
   VIDEO_CLOSED = 'VIDEO_CLOSED',
   UPDATE_TIMESTAMP = 'UPDATE_TIMESTAMP',
-  GET_VIDEO_STATE = 'GET_VIDEO_STATE'
+  GET_VIDEO_STATE = 'GET_VIDEO_STATE',
+  GET_TAB_ID = 'GET_TAB_ID'
 }
 
 /**
  * Base interface for all background messages
  */
-export interface BackgroundMessage {
+export interface BackgroundMessageBase {
   type: BackgroundMessageType;
+}
+
+/**
+ * Base interface for messages that require a tab ID
+ */
+export interface TabBackgroundMessage extends BackgroundMessageBase {
   tabId: number;
 }
 
 /**
  * Message sent when a video is detected
  */
-export interface VideoDetectedMessage extends BackgroundMessage {
+export interface VideoDetectedMessage extends TabBackgroundMessage {
   type: BackgroundMessageType.VIDEO_DETECTED;
   videoId: string;
   url: string;
@@ -52,7 +59,7 @@ export interface VideoDetectedMessage extends BackgroundMessage {
 /**
  * Message sent when a video is closed
  */
-export interface VideoClosedMessage extends BackgroundMessage {
+export interface VideoClosedMessage extends TabBackgroundMessage {
   type: BackgroundMessageType.VIDEO_CLOSED;
   videoId: string;
 }
@@ -60,7 +67,7 @@ export interface VideoClosedMessage extends BackgroundMessage {
 /**
  * Message sent to update video timestamp
  */
-export interface UpdateTimestampMessage extends BackgroundMessage {
+export interface UpdateTimestampMessage extends TabBackgroundMessage {
   type: BackgroundMessageType.UPDATE_TIMESTAMP;
   videoId: string;
   timestamp: number;
@@ -70,9 +77,16 @@ export interface UpdateTimestampMessage extends BackgroundMessage {
 /**
  * Message sent to get video state
  */
-export interface GetVideoStateMessage extends BackgroundMessage {
+export interface GetVideoStateMessage extends TabBackgroundMessage {
   type: BackgroundMessageType.GET_VIDEO_STATE;
   videoId: string;
+}
+
+/**
+ * Message sent to get current tab ID
+ */
+export interface GetTabIdMessage extends BackgroundMessageBase {
+  type: BackgroundMessageType.GET_TAB_ID;
 }
 
 /**
@@ -90,4 +104,5 @@ export type BackgroundMessageUnion =
   | VideoDetectedMessage 
   | VideoClosedMessage 
   | UpdateTimestampMessage
-  | GetVideoStateMessage; 
+  | GetVideoStateMessage
+  | GetTabIdMessage; 

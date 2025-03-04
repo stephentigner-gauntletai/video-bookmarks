@@ -61,21 +61,40 @@ export class BackgroundManager {
     sender: chrome.runtime.MessageSender,
     sendResponse: (response?: any) => void
   ): boolean {
+    // Special case for GET_TAB_ID message
+    if (message.type === BackgroundMessageType.GET_TAB_ID) {
+      sendResponse({ tabId: sender.tab?.id ?? -1 });
+      return true;
+    }
+
+    // For all other messages, ensure we have a valid tabId
+    const tabId = sender.tab?.id;
+    if (typeof tabId !== 'number') {
+      console.error('Invalid tabId in message:', message);
+      return false;
+    }
+
+    // Create a new message object with the validated tabId
+    const messageWithTabId = {
+      ...message,
+      tabId
+    };
+
     switch (message.type) {
       case BackgroundMessageType.VIDEO_DETECTED:
-        this.handleVideoDetected(message);
+        this.handleVideoDetected(messageWithTabId as VideoDetectedMessage);
         break;
 
       case BackgroundMessageType.VIDEO_CLOSED:
-        this.handleVideoClosed(message);
+        this.handleVideoClosed(messageWithTabId as VideoClosedMessage);
         break;
 
       case BackgroundMessageType.UPDATE_TIMESTAMP:
-        this.handleUpdateTimestamp(message);
+        this.handleUpdateTimestamp(messageWithTabId as UpdateTimestampMessage);
         break;
 
       case BackgroundMessageType.GET_VIDEO_STATE:
-        this.handleGetVideoState(message).then(sendResponse);
+        this.handleGetVideoState(messageWithTabId as GetVideoStateMessage).then(sendResponse);
         return true; // Will respond asynchronously
     }
 

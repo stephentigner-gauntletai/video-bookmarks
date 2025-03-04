@@ -16,13 +16,11 @@ export class VideoDetector {
   private metadataCheckInterval: number | null = null;
   private eventMonitor: VideoEventMonitor | null = null;
   private controls: VideoControls | null = null;
-  private tabId: number = -1;  // Initialize with invalid tab ID
+  private tabId: number = -1;
 
   private constructor() {
-    // Get current tab ID
-    chrome.tabs.getCurrent((tab) => {
-      this.tabId = tab?.id ?? -1;
-    });
+    // Initialize tabId
+    this.initializeTabId();
   }
 
   /**
@@ -33,6 +31,22 @@ export class VideoDetector {
       VideoDetector.instance = new VideoDetector();
     }
     return VideoDetector.instance;
+  }
+
+  /**
+   * Initialize tab ID by sending a message to the background script
+   */
+  private async initializeTabId(): Promise<void> {
+    try {
+      const response = await chrome.runtime.sendMessage({
+        type: BackgroundMessageType.GET_TAB_ID
+      });
+      this.tabId = response.tabId;
+      logger.debug('Tab ID initialized:', this.tabId);
+    } catch (error) {
+      logger.error('Failed to get tab ID:', error);
+      this.tabId = -1;
+    }
   }
 
   /**
@@ -124,19 +138,26 @@ export class VideoDetector {
   /**
    * Handle when a valid player is found
    */
-  private handlePlayerFound(player: YouTubePlayer): void {
+  private async handlePlayerFound(player: YouTubePlayer): Promise<void> {
     this.player = player;
     this.events.onPlayerFound?.(player);
+
+    // Ensure we have a valid tab ID
+    if (this.tabId === -1) {
+      await this.initializeTabId();
+    }
 
     // Initialize event monitor
     this.eventMonitor = new VideoEventMonitor(player, this.tabId);
     this.eventMonitor.start();
 
-    // Initialize UI controls
-    this.controls = VideoControls.getInstance(this.tabId);
-    this.controls.initialize(player).catch((error) => {
+    try {
+      // Initialize UI controls
+      this.controls = await VideoControls.getInstance(this.tabId);
+      await this.controls.initialize(player);
+    } catch (error) {
       logger.error('Failed to initialize UI controls', error);
-    });
+    }
 
     // Start metadata monitoring
     this.startMetadataCheck();

@@ -49,9 +49,20 @@ export class VideoControls {
   /**
    * Get the singleton instance
    */
-  public static getInstance(tabId: number): VideoControls {
+  public static async getInstance(tabId?: number): Promise<VideoControls> {
     if (!VideoControls.instance) {
-      VideoControls.instance = new VideoControls(tabId);
+      // If tabId is not provided, get it from chrome.tabs API
+      const finalTabId = tabId ?? await new Promise<number>((resolve) => {
+        chrome.runtime.sendMessage({ type: 'GET_TAB_ID' }, (response) => {
+          resolve(response?.tabId ?? -1);
+        });
+      });
+
+      if (finalTabId === -1) {
+        logger.error('Failed to get tab ID');
+      }
+
+      VideoControls.instance = new VideoControls(finalTabId);
     }
     return VideoControls.instance;
   }
@@ -106,7 +117,7 @@ export class VideoControls {
 
     // Create bookmark button
     this.button = document.createElement('button');
-    this.button.className = 'vb-button';
+    this.button.className = 'vb-button ytp-button'; // Add ytp-button class for YouTube styling
     this.button.innerHTML = `
       <span class="vb-icon">🔖</span>
       <span class="vb-label">Bookmark</span>
@@ -121,12 +132,30 @@ export class VideoControls {
     this.container.appendChild(this.button);
     this.container.appendChild(this.timestampDisplay);
 
-    // Insert into YouTube player controls
-    const playerControls = document.querySelector('.ytp-right-controls');
-    if (playerControls) {
-      playerControls.insertBefore(this.container, playerControls.firstChild);
-    } else {
-      logger.warn('Could not find YouTube player controls');
+    // Try to insert into YouTube player controls
+    const tryInjectControls = () => {
+      const rightControls = document.querySelector('.ytp-right-controls');
+      if (rightControls) {
+        // Insert before the first child of right controls
+        rightControls.insertBefore(this.container!, rightControls.firstChild);
+        return true;
+      }
+      return false;
+    };
+
+    // If immediate injection fails, retry a few times
+    if (!tryInjectControls()) {
+      let attempts = 0;
+      const maxAttempts = 5;
+      const interval = setInterval(() => {
+        if (tryInjectControls() || attempts >= maxAttempts) {
+          clearInterval(interval);
+          if (attempts >= maxAttempts) {
+            logger.warn('Could not find YouTube player controls after multiple attempts');
+          }
+        }
+        attempts++;
+      }, 1000);
     }
   }
 
@@ -140,6 +169,7 @@ export class VideoControls {
         display: flex;
         align-items: center;
         margin-right: 8px;
+        height: 100%;
       }
 
       .vb-button {
@@ -147,10 +177,10 @@ export class VideoControls {
         align-items: center;
         background: transparent;
         border: none;
-        color: white;
+        color: #fff;
         cursor: pointer;
         padding: 0 8px;
-        height: 100%;
+        height: 36px;
         opacity: 0.9;
         transition: opacity 0.2s;
       }
@@ -162,17 +192,22 @@ export class VideoControls {
       .vb-icon {
         font-size: 16px;
         margin-right: 4px;
+        line-height: 1;
       }
 
       .vb-label {
         font-size: 13px;
+        font-family: Roboto, Arial, sans-serif;
+        line-height: 36px;
       }
 
       .vb-timestamp {
-        color: white;
+        color: #fff;
         font-size: 13px;
         margin-left: 8px;
         opacity: 0.9;
+        font-family: Roboto, Arial, sans-serif;
+        line-height: 36px;
       }
 
       .${this.config.activeClass} .vb-button {
@@ -186,6 +221,11 @@ export class VideoControls {
 
       .${this.config.errorClass} .vb-button {
         color: #ff6b6b;
+      }
+
+      /* Hide label on small players */
+      .ytp-small-mode .vb-label {
+        display: none;
       }
     `;
     document.head.appendChild(styles);
