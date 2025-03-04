@@ -1,10 +1,18 @@
 import React from 'react'
-import ReactDOM from 'react-dom/client'
+import { createRoot } from 'react-dom/client'
 import { Popup } from './Popup'
-import './index.css'
+import './Popup.css'
 
-ReactDOM.createRoot(document.getElementById('app') as HTMLElement).render(
-  <React.StrictMode>
-    <Popup />
-  </React.StrictMode>,
-)
+// Initialize storage manager
+import { storageManager } from '../storage'
+storageManager.initialize().catch(console.error)
+
+const container = document.getElementById('root')
+if (container) {
+  const root = createRoot(container)
+  root.render(
+    <React.StrictMode>
+      <Popup />
+    </React.StrictMode>,
+  )
+}

@@ -112,18 +112,18 @@
   - [x] Success confirmation
 
 ### 10. Popup UI Development
-- [ ] Create basic UI structure
-  - [ ] HTML layout
-  - [ ] CSS styling
-  - [ ] Component organization
-- [ ] Implement bookmark list
-  - [ ] List view component
-  - [ ] Individual bookmark items
-  - [ ] Timestamp formatting
-- [ ] Add basic interactions
-  - [ ] Click to navigate
-  - [ ] Delete functionality
-  - [ ] Update handling
+- [x] Create basic UI structure
+  - [x] HTML layout
+  - [x] CSS styling
+  - [x] Component organization
+- [x] Implement bookmark list
+  - [x] List view component
+  - [x] Individual bookmark items
+  - [x] Timestamp formatting
+- [x] Add basic interactions
+  - [x] Click to navigate
+  - [x] Delete functionality
+  - [x] Update handling
 
 ## Phase 5: Enhancement
 
