@@ -1,0 +1,93 @@
+import { VideoBookmark } from '../storage/types';
+
+/**
+ * State of active video tracking
+ */
+export interface ActiveVideo {
+  id: string;
+  tabId: number;
+  url: string;
+  title: string;
+  lastTimestamp: number;
+  maxTimestamp: number;
+  lastUpdate: number;
+}
+
+/**
+ * Background script state
+ */
+export interface BackgroundState {
+  activeVideos: Map<number, ActiveVideo>;  // tabId -> ActiveVideo
+  isInitialized: boolean;
+}
+
+/**
+ * Types of messages that can be sent to the background script
+ */
+export enum BackgroundMessageType {
+  VIDEO_DETECTED = 'VIDEO_DETECTED',
+  VIDEO_CLOSED = 'VIDEO_CLOSED',
+  UPDATE_TIMESTAMP = 'UPDATE_TIMESTAMP',
+  GET_VIDEO_STATE = 'GET_VIDEO_STATE'
+}
+
+/**
+ * Base interface for all background messages
+ */
+export interface BackgroundMessage {
+  type: BackgroundMessageType;
+  tabId: number;
+}
+
+/**
+ * Message sent when a video is detected
+ */
+export interface VideoDetectedMessage extends BackgroundMessage {
+  type: BackgroundMessageType.VIDEO_DETECTED;
+  videoId: string;
+  url: string;
+  title: string;
+}
+
+/**
+ * Message sent when a video is closed
+ */
+export interface VideoClosedMessage extends BackgroundMessage {
+  type: BackgroundMessageType.VIDEO_CLOSED;
+  videoId: string;
+}
+
+/**
+ * Message sent to update video timestamp
+ */
+export interface UpdateTimestampMessage extends BackgroundMessage {
+  type: BackgroundMessageType.UPDATE_TIMESTAMP;
+  videoId: string;
+  timestamp: number;
+  isMaxTimestamp: boolean;
+}
+
+/**
+ * Message sent to get video state
+ */
+export interface GetVideoStateMessage extends BackgroundMessage {
+  type: BackgroundMessageType.GET_VIDEO_STATE;
+  videoId: string;
+}
+
+/**
+ * Response to get video state
+ */
+export interface GetVideoStateResponse {
+  bookmark: VideoBookmark | null;
+  activeVideo: ActiveVideo | null;
+}
+
+/**
+ * Union type of all possible background messages
+ */
+export type BackgroundMessageUnion = 
+  | VideoDetectedMessage 
+  | VideoClosedMessage 
+  | UpdateTimestampMessage
+  | GetVideoStateMessage; 
