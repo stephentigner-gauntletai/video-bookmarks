@@ -78,23 +78,23 @@
 ## Phase 3: Integration
 
 ### 7. Message Handling System
-- [ ] Define message types
-  - [ ] Create message interfaces
-  - [ ] Setup type guards
-- [ ] Implement messaging system
-  - [ ] Content script sender
-  - [ ] Background script receiver
-  - [ ] Response handling
-- [ ] Add error handling for messages
+- [x] Define message types
+  - [x] Create message interfaces
+  - [x] Setup type guards
+- [x] Implement messaging system
+  - [x] Content script sender
+  - [x] Background script receiver
+  - [x] Response handling
+- [x] Add error handling for messages
 
 ### 8. Basic Bookmark Operations
-- [ ] Create bookmark operations
-  - [ ] Add new bookmark
-  - [ ] Update existing bookmark
-  - [ ] Remove bookmark
-  - [ ] Query bookmarks
-- [ ] Implement state synchronization
-- [ ] Add operation validation
+- [x] Create bookmark operations
+  - [x] Add new bookmark
+  - [x] Update existing bookmark
+  - [x] Remove bookmark
+  - [x] Query bookmarks
+- [x] Implement state synchronization
+- [x] Add operation validation
 
 ## Phase 4: User Interface
 
