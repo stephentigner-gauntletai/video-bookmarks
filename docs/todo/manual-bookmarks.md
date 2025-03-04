@@ -44,16 +44,16 @@
 ## Phase 2: Core Functionality
 
 ### 4. Video Detection
-- [ ] Implement MutationObserver
-  - [ ] Setup observer configuration
-  - [ ] Define node matching rules
-- [ ] Create video element detection
-  - [ ] Identify YouTube player element
-  - [ ] Handle dynamic player loading
-- [ ] Build metadata extraction
-  - [ ] Video ID extraction
-  - [ ] Title extraction
-  - [ ] URL handling
+- [x] Implement MutationObserver
+  - [x] Setup observer configuration
+  - [x] Define node matching rules
+- [x] Create video element detection
+  - [x] Identify YouTube player element
+  - [x] Handle dynamic player loading
+- [x] Build metadata extraction
+  - [x] Video ID extraction
+  - [x] Title extraction
+  - [x] URL handling
 
 ### 5. Background Script Core
 - [ ] Setup background script

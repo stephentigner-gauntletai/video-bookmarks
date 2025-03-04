@@ -1,11 +1,17 @@
 import { logger } from './logger';
 import { isYouTubeVideoPage, extractVideoId, waitForPageLoad } from './utils';
 import { storageManager } from '../storage';
+import { VideoDetector } from './video/detector';
+import { VideoMetadata, PlayerState, YouTubePlayer } from './video/types';
 
 class VideoBookmarkContentScript {
   private static instance: VideoBookmarkContentScript;
+  private videoDetector: VideoDetector;
+  private currentVideoId: string | null = null;
 
-  private constructor() {}
+  private constructor() {
+    this.videoDetector = VideoDetector.getInstance();
+  }
 
   /**
    * Get the singleton instance
@@ -45,6 +51,9 @@ class VideoBookmarkContentScript {
       // Initialize storage
       await storageManager.initialize();
 
+      // Initialize video detector
+      this.initializeVideoDetector();
+
       // Setup URL change detection for SPAs
       this.setupUrlChangeDetection();
 
@@ -52,6 +61,51 @@ class VideoBookmarkContentScript {
     } catch (error) {
       logger.error('Failed to initialize content script', error);
     }
+  }
+
+  /**
+   * Initialize video detector with event handlers
+   */
+  private initializeVideoDetector(): void {
+    this.videoDetector.initialize({
+      onPlayerFound: this.handlePlayerFound.bind(this),
+      onPlayerLost: this.handlePlayerLost.bind(this),
+      onMetadataUpdated: this.handleMetadataUpdated.bind(this),
+      onStateChange: this.handlePlayerStateChange.bind(this)
+    });
+  }
+
+  /**
+   * Handle when the video player is found
+   */
+  private handlePlayerFound(player: YouTubePlayer): void {
+    logger.info('YouTube player found and ready');
+  }
+
+  /**
+   * Handle when the video player is lost/removed
+   */
+  private handlePlayerLost(): void {
+    logger.info('YouTube player removed');
+    this.currentVideoId = null;
+  }
+
+  /**
+   * Handle video metadata updates
+   */
+  private handleMetadataUpdated(metadata: VideoMetadata): void {
+    // Only log when video ID changes
+    if (this.currentVideoId !== metadata.id) {
+      this.currentVideoId = metadata.id;
+      logger.info('Video metadata updated', metadata);
+    }
+  }
+
+  /**
+   * Handle player state changes
+   */
+  private handlePlayerStateChange(state: PlayerState): void {
+    logger.debug('Player state changed', { state: PlayerState[state] });
   }
 
   /**
@@ -97,7 +151,10 @@ class VideoBookmarkContentScript {
     if (isYouTubeVideoPage()) {
       const videoId = extractVideoId(newUrl);
       logger.info('URL changed to new video', { videoId });
-      // Additional handling will be added in the video detection phase
+
+      // Reset video detector on URL change
+      this.videoDetector.destroy();
+      this.initializeVideoDetector();
     }
   }
 }
