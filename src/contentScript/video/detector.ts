@@ -91,10 +91,11 @@ export class VideoDetector {
         if (!this.player) {
           this.findPlayer();
         }
-      }, 500)
+      }, 1000) // Increased debounce time to reduce spam
     );
 
-    this.observer.observe(document.body, {
+    // Observe both body and head for changes
+    this.observer.observe(document.documentElement, {
       childList: true,
       subtree: true
     });
@@ -116,55 +117,123 @@ export class VideoDetector {
   private findPlayer(): void {
     // Try to find the player element
     const player = document.querySelector('#movie_player') as YouTubePlayer;
-
-    if (player && this.isValidPlayer(player)) {
-      logger.info('YouTube player found');
-      this.handlePlayerFound(player);
+    
+    if (!player) {
+      logger.debug('Player element not found');
+      return;
     }
+
+    // If we already found and validated this player, skip
+    if (this.player === player) {
+      return;
+    }
+
+    logger.debug('Found player element, checking API initialization...');
+    logger.debug('Found player element:', player);
+
+    // Wait for YouTube API to initialize
+    this.waitForPlayerAPI(player, 0).catch(error => {
+      logger.error('Failed waiting for player API:', error);
+    });
+  }
+
+  /**
+   * Wait for YouTube player API to initialize with exponential backoff
+   */
+  private async waitForPlayerAPI(player: YouTubePlayer, attempt: number): Promise<void> {
+    // Max 10 attempts (about 10 seconds total)
+    const MAX_ATTEMPTS = 10;
+    // Start with 100ms delay, double each time
+    const delay = Math.min(100 * Math.pow(2, attempt), 2000);
+
+    if (attempt >= MAX_ATTEMPTS) {
+      logger.warn('Gave up waiting for player API initialization');
+      return;
+    }
+
+    // Check if API is ready
+    if (this.isValidPlayer(player)) {
+      logger.info('YouTube player API initialized');
+      await this.handlePlayerFound(player);
+      return;
+    }
+
+    // Wait and try again
+    await new Promise(resolve => setTimeout(resolve, delay));
+    await this.waitForPlayerAPI(player, attempt + 1);
   }
 
   /**
    * Validate that the player has the expected API methods
    */
   private isValidPlayer(player: YouTubePlayer): boolean {
-    return (
+    const hasRequiredMethods = 
       typeof player.getVideoData === 'function' &&
       typeof player.getCurrentTime === 'function' &&
       typeof player.getDuration === 'function' &&
-      typeof player.getPlayerState === 'function'
-    );
+      typeof player.getPlayerState === 'function';
+
+    if (!hasRequiredMethods) {
+      logger.debug('Player validation failed, missing required methods:', {
+        hasGetVideoData: typeof player.getVideoData === 'function',
+        hasGetCurrentTime: typeof player.getCurrentTime === 'function',
+        hasGetDuration: typeof player.getDuration === 'function',
+        hasGetPlayerState: typeof player.getPlayerState === 'function'
+      });
+
+      logger.debug('Property types for player:', {
+        getVideoData: typeof player.getVideoData,
+        getCurrentTime: typeof player.getCurrentTime,
+        getDuration: typeof player.getDuration,
+        getPlayerState: typeof player.getPlayerState
+      });
+    }
+
+    return hasRequiredMethods;
   }
 
   /**
    * Handle when a valid player is found
    */
   private async handlePlayerFound(player: YouTubePlayer): Promise<void> {
+    if (this.player === player) {
+      logger.debug('Player already initialized, skipping');
+      return;
+    }
+
+    logger.info('Initializing player...');
     this.player = player;
     this.events.onPlayerFound?.(player);
 
     // Ensure we have a valid tab ID
     if (this.tabId === -1) {
+      logger.debug('Getting tab ID...');
       await this.initializeTabId();
     }
 
     // Initialize event monitor
+    logger.debug('Initializing event monitor...');
     this.eventMonitor = new VideoEventMonitor(player, this.tabId);
     this.eventMonitor.start();
 
     try {
       // Initialize UI controls
+      logger.debug('Initializing UI controls...');
       this.controls = await VideoControls.getInstance(this.tabId);
       await this.controls.initialize(player);
+      logger.info('UI controls initialized successfully');
     } catch (error) {
-      logger.error('Failed to initialize UI controls', error);
+      logger.error('Failed to initialize UI controls:', error);
     }
 
     // Start metadata monitoring
+    logger.debug('Starting metadata monitoring...');
     this.startMetadataCheck();
 
     // Notify background script
     const videoData = player.getVideoData?.();
     if (videoData) {
+      logger.debug('Sending video detected message...');
       chrome.runtime.sendMessage({
         type: BackgroundMessageType.VIDEO_DETECTED,
         tabId: this.tabId,
@@ -173,6 +242,8 @@ export class VideoDetector {
         title: videoData.title
       });
     }
+
+    logger.info('Player initialization complete');
   }
 
   /**

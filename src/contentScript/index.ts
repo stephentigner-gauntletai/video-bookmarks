@@ -1,8 +1,15 @@
-import { logger } from './logger';
+import { logger, LogLevel } from './logger';
 import { isYouTubeVideoPage, extractVideoId, waitForPageLoad } from './utils';
 import { storageManager } from '../storage';
 import { VideoDetector } from './video/detector';
 import { VideoMetadata, PlayerState, YouTubePlayer } from './video/types';
+
+// Configure logger to show debug messages
+logger.configure({
+  enabled: true,
+  minLevel: LogLevel.DEBUG,
+  prefix: '[Video Bookmarks]'
+});
 
 class VideoBookmarkContentScript {
   private static instance: VideoBookmarkContentScript;
@@ -57,7 +64,7 @@ class VideoBookmarkContentScript {
       // Setup URL change detection for SPAs
       this.setupUrlChangeDetection();
 
-      logger.info('Content script initialized successfully');
+      logger.info('Content script initialized successfully');      
     } catch (error) {
       logger.error('Failed to initialize content script', error);
     }
