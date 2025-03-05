@@ -215,7 +215,7 @@ export class VideoControls {
    * Handle bookmark button click
    */
   private async handleButtonClick(): Promise<void> {
-    if (!this.videoId || !this.player) return;
+    if (!this.videoId) return;
 
     try {
       this.setSaving(true);
@@ -240,7 +240,13 @@ export class VideoControls {
    * Activate bookmark tracking
    */
   private async activateBookmark(): Promise<void> {
-    if (!this.videoId || !this.player) return;
+    if (!this.videoId) return;
+
+    // Get video data through proxy
+    const videoData = await getVideoData(this.tabId);
+    if (!videoData) {
+      throw new Error('Failed to get video data');
+    }
 
     // Send video detected message
     chrome.runtime.sendMessage({
@@ -248,7 +254,7 @@ export class VideoControls {
       tabId: this.tabId,
       videoId: this.videoId,
       url: window.location.href,
-      title: this.player.getVideoData?.()?.title || ''
+      title: videoData.title
     });
 
     this.setActive(true);
