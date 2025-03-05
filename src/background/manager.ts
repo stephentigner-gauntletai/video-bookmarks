@@ -115,8 +115,8 @@ export class BackgroundManager {
         break;
 
       case BackgroundMessageType.UPDATE_TIMESTAMP:
-        this.handleUpdateTimestamp(messageWithTabId as UpdateTimestampMessage);
-        break;
+        this.handleUpdateTimestamp(messageWithTabId as UpdateTimestampMessage).then(sendResponse);
+        return true; // Will respond asynchronously
 
       case BackgroundMessageType.GET_VIDEO_STATE:
         this.handleGetVideoState(messageWithTabId as GetVideoStateMessage).then(sendResponse);
@@ -130,6 +130,7 @@ export class BackgroundManager {
    * Handle video detected message
    */
   private handleVideoDetected(message: VideoDetectedMessage): void {
+    // Create or update active video
     const activeVideo: ActiveVideo = {
       id: message.videoId,
       tabId: message.tabId,
@@ -140,8 +141,8 @@ export class BackgroundManager {
       lastUpdate: Date.now()
     };
 
+    // Add to active videos
     this.state.activeVideos.set(message.tabId, activeVideo);
-    console.log('Video detected:', activeVideo);
   }
 
   /**
@@ -159,23 +160,21 @@ export class BackgroundManager {
   /**
    * Handle update timestamp message
    */
-  private handleUpdateTimestamp(message: UpdateTimestampMessage): void {
+  private async handleUpdateTimestamp(message: UpdateTimestampMessage): Promise<void> {
     const activeVideo = this.state.activeVideos.get(message.tabId);
-    if (!activeVideo || activeVideo.id !== message.videoId) return;
-
-    if (message.isMaxTimestamp) {
-      activeVideo.maxTimestamp = Math.max(activeVideo.maxTimestamp, message.timestamp);
-    } else {
-      activeVideo.lastTimestamp = message.timestamp;
+    if (!activeVideo || activeVideo.id !== message.videoId) {
+      return;
     }
 
+    // Update timestamps
+    activeVideo.lastTimestamp = message.timestamp;
+    if (message.isMaxTimestamp || message.timestamp > activeVideo.maxTimestamp) {
+      activeVideo.maxTimestamp = message.timestamp;
+    }
     activeVideo.lastUpdate = Date.now();
-    this.state.activeVideos.set(message.tabId, activeVideo);
 
-    // Save state periodically (every 5 seconds)
-    if (Date.now() - activeVideo.lastUpdate >= 5000) {
-      this.saveVideoState(activeVideo);
-    }
+    // Save to storage
+    await this.saveVideoState(activeVideo);
   }
 
   /**
