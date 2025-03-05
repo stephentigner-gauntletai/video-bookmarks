@@ -253,6 +253,17 @@ export class BackgroundManager {
           return;
         }
 
+        // Log the actual player object for debugging
+        console.debug('[Video Bookmarks] Bridge: Found player element:', {
+          element: player,
+          methods: {
+            getVideoData: player.getVideoData,
+            getCurrentTime: player.getCurrentTime,
+            getDuration: player.getDuration,
+            getPlayerState: player.getPlayerState
+          }
+        });
+
         // Check if the player API is initialized
         const hasAPI = typeof player.getVideoData === 'function' &&
                       typeof player.getCurrentTime === 'function' &&
@@ -282,7 +293,21 @@ export class BackgroundManager {
         }
 
         try {
+          // Try to get video data and log it
+          console.debug('[Video Bookmarks] Bridge: Attempting to get video data');
           const videoData = player.getVideoData();
+          console.debug('[Video Bookmarks] Bridge: Retrieved video data:', videoData);
+
+          if (!videoData || !videoData.video_id) {
+            console.warn('[Video Bookmarks] Bridge: Invalid video data:', videoData);
+            window.postMessage({ 
+              type: 'PLAYER_STATUS', 
+              status: 'error',
+              error: 'Invalid video data returned from player'
+            }, '*');
+            return;
+          }
+
           console.debug('[Video Bookmarks] Bridge: Player API ready, sending data');
           window.postMessage({
             type: 'PLAYER_STATUS',

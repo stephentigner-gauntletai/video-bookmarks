@@ -68,28 +68,42 @@ export class VideoControls {
   }
 
   /**
-   * Initialize controls for a player
+   * Initialize the controls
    */
   public async initialize(player: YouTubePlayer): Promise<void> {
-    this.player = player;
-    this.videoId = player.getVideoData?.()?.video_id || null;
+    try {
+      logger.debug('Starting UI controls initialization');
+      
+      // Get video data first
+      const videoData = player.getVideoData?.();
+      logger.debug('Retrieved video data:', videoData);
+      
+      if (!videoData?.video_id) {
+        throw new Error('No video ID available in player data');
+      }
 
-    if (!this.videoId) {
-      logger.error('Failed to get video ID from player');
-      return;
+      this.videoId = videoData.video_id;
+      this.player = player;
+
+      // Create and inject controls
+      logger.debug('Creating UI controls');
+      this.createControls();
+
+      // Check initial state
+      logger.debug('Checking video state');
+      await this.checkVideoState();
+
+      // Start timestamp updates
+      logger.debug('Starting timestamp updates');
+      this.startTimestampUpdates();
+
+      logger.info('UI controls initialization complete');
+    } catch (error) {
+      logger.error('Failed to initialize UI controls:', error);
+      // Clean up any partial initialization
+      this.destroy();
+      throw error;
     }
-
-    // Create and inject UI elements
-    this.createControls();
-    this.injectStyles();
-
-    // Check current state
-    await this.checkVideoState();
-
-    // Start timestamp updates
-    this.startTimestampUpdates();
-
-    logger.info('Video controls initialized');
   }
 
   /**
