@@ -13,12 +13,10 @@ logger.configure({
 
 class VideoBookmarkContentScript {
   private static instance: VideoBookmarkContentScript;
-  private videoDetector: VideoDetector;
+  private videoDetector: VideoDetector | null = null;
   private currentVideoId: string | null = null;
 
-  private constructor() {
-    this.videoDetector = VideoDetector.getInstance();
-  }
+  private constructor() {}
 
   /**
    * Get the singleton instance
@@ -59,7 +57,7 @@ class VideoBookmarkContentScript {
       await storageManager.initialize();
 
       // Initialize video detector
-      this.initializeVideoDetector();
+      await this.initializeVideoDetector();
 
       // Setup URL change detection for SPAs
       this.setupUrlChangeDetection();
@@ -73,8 +71,9 @@ class VideoBookmarkContentScript {
   /**
    * Initialize video detector with event handlers
    */
-  private initializeVideoDetector(): void {
-    this.videoDetector.initialize({
+  private async initializeVideoDetector(): Promise<void> {
+    this.videoDetector = await VideoDetector.getInstance();
+    await this.videoDetector.initialize({
       onPlayerFound: this.handlePlayerFound.bind(this),
       onPlayerLost: this.handlePlayerLost.bind(this),
       onMetadataUpdated: this.handleMetadataUpdated.bind(this),
@@ -160,7 +159,7 @@ class VideoBookmarkContentScript {
       logger.info('URL changed to new video', { videoId });
 
       // Reset video detector on URL change
-      this.videoDetector.destroy();
+      this.videoDetector?.destroy();
       this.initializeVideoDetector();
     }
   }

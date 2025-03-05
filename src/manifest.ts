@@ -40,10 +40,25 @@ export default defineManifest({
   },
   web_accessible_resources: [
     {
-      resources: ['img/logo-16.png', 'img/logo-34.png', 'img/logo-48.png', 'img/logo-128.png'],
+      resources: [
+        'img/logo-16.png',
+        'img/logo-34.png',
+        'img/logo-48.png',
+        'img/logo-128.png'
+      ],
       matches: ['*://*.youtube.com/*', '*://youtube.com/*', '*://*.youtu.be/*', '*://youtu.be/*'],
     },
   ],
-  permissions: ['sidePanel', 'storage', 'tabs'],
-  host_permissions: ['*://*.youtube.com/*', '*://youtube.com/*', '*://*.youtu.be/*', '*://youtu.be/*']
+  permissions: [
+    'sidePanel',
+    'storage',
+    'tabs',
+    'scripting'
+  ],
+  host_permissions: [
+    '*://*.youtube.com/*',
+    '*://youtube.com/*',
+    '*://*.youtu.be/*',
+    '*://youtu.be/*'
+  ]
 })

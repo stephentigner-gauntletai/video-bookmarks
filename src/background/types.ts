@@ -29,7 +29,8 @@ export enum BackgroundMessageType {
   VIDEO_CLOSED = 'VIDEO_CLOSED',
   UPDATE_TIMESTAMP = 'UPDATE_TIMESTAMP',
   GET_VIDEO_STATE = 'GET_VIDEO_STATE',
-  GET_TAB_ID = 'GET_TAB_ID'
+  GET_TAB_ID = 'GET_TAB_ID',
+  INJECT_BRIDGE = 'INJECT_BRIDGE'
 }
 
 /**
@@ -98,6 +99,13 @@ export interface GetVideoStateResponse {
 }
 
 /**
+ * Message sent to inject bridge script
+ */
+export interface InjectBridgeMessage extends TabBackgroundMessage {
+  type: BackgroundMessageType.INJECT_BRIDGE;
+}
+
+/**
  * Union type of all possible background messages
  */
 export type BackgroundMessageUnion = 
@@ -105,4 +113,5 @@ export type BackgroundMessageUnion =
   | VideoClosedMessage 
   | UpdateTimestampMessage
   | GetVideoStateMessage
-  | GetTabIdMessage; 
+  | GetTabIdMessage
+  | InjectBridgeMessage; 

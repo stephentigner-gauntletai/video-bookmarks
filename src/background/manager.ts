@@ -63,7 +63,22 @@ export class BackgroundManager {
   ): boolean {
     // Special case for GET_TAB_ID message
     if (message.type === BackgroundMessageType.GET_TAB_ID) {
-      sendResponse({ tabId: sender.tab?.id ?? -1 });
+      console.debug('[Video Bookmarks] Handling GET_TAB_ID message', {
+        sender,
+        tabId: sender.tab?.id
+      });
+      const response = { tabId: sender.tab?.id ?? -1 };
+      console.debug('[Video Bookmarks] Sending GET_TAB_ID response:', response);
+      sendResponse(response);
+      return true;
+    }
+
+    // Special case for INJECT_BRIDGE message
+    if (message.type === BackgroundMessageType.INJECT_BRIDGE) {
+      console.debug('[Video Bookmarks] Handling INJECT_BRIDGE message', {
+        tabId: message.tabId
+      });
+      this.injectBridgeScript(message.tabId).then(sendResponse);
       return true;
     }
 
@@ -206,6 +221,105 @@ export class BackgroundManager {
       console.log('Video state saved:', bookmark);
     } catch (error) {
       console.error('Error saving video state:', error);
+    }
+  }
+
+  /**
+   * Inject the bridge script into a tab
+   */
+  private async injectBridgeScript(tabId: number): Promise<void> {
+    console.debug('[Video Bookmarks] Injecting bridge script into tab:', tabId);
+
+    const bridgeFunction = () => {
+      console.debug('[Video Bookmarks] Bridge script starting execution');
+
+      // Define the player interface in the page context
+      interface YouTubePlayer extends HTMLElement {
+        getVideoData(): { video_id: string; title: string; author: string };
+        getCurrentTime(): number;
+        getDuration(): number;
+        getPlayerState(): number;
+      }
+
+      window.addEventListener('message', function(event) {
+        if (event.data.type !== 'QUERY_PLAYER') return;
+        
+        console.debug('[Video Bookmarks] Bridge received QUERY_PLAYER message');
+        
+        const player = document.querySelector('#movie_player') as YouTubePlayer | null;
+        if (!player) {
+          console.debug('[Video Bookmarks] Bridge: Player element not found');
+          window.postMessage({ type: 'PLAYER_STATUS', status: 'not_found' }, '*');
+          return;
+        }
+
+        // Check if the player API is initialized
+        const hasAPI = typeof player.getVideoData === 'function' &&
+                      typeof player.getCurrentTime === 'function' &&
+                      typeof player.getDuration === 'function' &&
+                      typeof player.getPlayerState === 'function';
+
+        if (!hasAPI) {
+          console.debug('[Video Bookmarks] Bridge: Player API not ready', {
+            methods: {
+              getVideoData: typeof player.getVideoData,
+              getCurrentTime: typeof player.getCurrentTime,
+              getDuration: typeof player.getDuration,
+              getPlayerState: typeof player.getPlayerState
+            }
+          });
+          window.postMessage({ 
+            type: 'PLAYER_STATUS', 
+            status: 'api_not_ready',
+            methods: {
+              getVideoData: typeof player.getVideoData,
+              getCurrentTime: typeof player.getCurrentTime,
+              getDuration: typeof player.getDuration,
+              getPlayerState: typeof player.getPlayerState
+            }
+          }, '*');
+          return;
+        }
+
+        try {
+          const videoData = player.getVideoData();
+          console.debug('[Video Bookmarks] Bridge: Player API ready, sending data');
+          window.postMessage({
+            type: 'PLAYER_STATUS',
+            status: 'ready',
+            data: {
+              videoId: videoData.video_id,
+              title: videoData.title,
+              author: videoData.author,
+              duration: player.getDuration(),
+              currentTime: player.getCurrentTime(),
+              state: player.getPlayerState()
+            }
+          }, '*');
+        } catch (error) {
+          console.error('[Video Bookmarks] Bridge: Error accessing player API:', error);
+          window.postMessage({ 
+            type: 'PLAYER_STATUS', 
+            status: 'error',
+            error: error instanceof Error ? error.message : 'Unknown error'
+          }, '*');
+        }
+      });
+
+      console.debug('[Video Bookmarks] Bridge script setup complete');
+    };
+
+    try {
+      console.debug('[Video Bookmarks] Executing bridge script injection');
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: bridgeFunction,
+        world: 'MAIN'
+      });
+      console.debug('[Video Bookmarks] Bridge script injection successful');
+    } catch (error) {
+      console.error('[Video Bookmarks] Failed to inject bridge script:', error);
+      throw error;
     }
   }
 } 

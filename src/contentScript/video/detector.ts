@@ -9,7 +9,7 @@ import { BackgroundMessageType } from '../../background/types';
  * Class responsible for detecting and monitoring the YouTube player
  */
 export class VideoDetector {
-  private static instance: VideoDetector;
+  private static instance: VideoDetector | null = null;
   private observer: MutationObserver | null = null;
   private player: YouTubePlayer | null = null;
   private events: Partial<VideoEvents> = {};
@@ -17,18 +17,22 @@ export class VideoDetector {
   private eventMonitor: VideoEventMonitor | null = null;
   private controls: VideoControls | null = null;
   private tabId: number = -1;
+  private bridgeInitialized: boolean = false;
+  private isInitialized: boolean = false;
 
   private constructor() {
-    // Initialize tabId
-    this.initializeTabId();
+    // Setup message listener for bridge
+    this.setupBridgeListener();
   }
 
   /**
    * Get the singleton instance
    */
-  public static getInstance(): VideoDetector {
+  public static async getInstance(): Promise<VideoDetector> {
     if (!VideoDetector.instance) {
       VideoDetector.instance = new VideoDetector();
+      // Initialize tab ID before returning instance
+      await VideoDetector.instance.initializeTabId();
     }
     return VideoDetector.instance;
   }
@@ -37,24 +41,42 @@ export class VideoDetector {
    * Initialize tab ID by sending a message to the background script
    */
   private async initializeTabId(): Promise<void> {
+    if (this.isInitialized) return;
+
     try {
+      logger.debug('Sending GET_TAB_ID message to background script');
       const response = await chrome.runtime.sendMessage({
         type: BackgroundMessageType.GET_TAB_ID
       });
+      
+      logger.debug('Received GET_TAB_ID response:', response);
+      
+      if (!response || typeof response.tabId !== 'number') {
+        throw new Error(`Invalid response format: ${JSON.stringify(response)}`);
+      }
+
       this.tabId = response.tabId;
       logger.debug('Tab ID initialized:', this.tabId);
+      
+      if (this.tabId === -1) {
+        throw new Error('Received invalid tab ID (-1)');
+      }
+
+      this.isInitialized = true;
     } catch (error) {
       logger.error('Failed to get tab ID:', error);
       this.tabId = -1;
+      this.isInitialized = false;
+      throw error;
     }
   }
 
   /**
    * Initialize the detector
    */
-  public initialize(events: Partial<VideoEvents>): void {
+  public async initialize(events: Partial<VideoEvents>): Promise<void> {
     this.events = events;
-    this.startObserving();
+    await this.startObserving();
     logger.debug('Video detector initialized');
   }
 
@@ -79,8 +101,11 @@ export class VideoDetector {
   /**
    * Start observing DOM changes to detect the player
    */
-  private startObserving(): void {
+  private async startObserving(): Promise<void> {
     logger.debug('Starting player detection');
+
+    // Initialize bridge first
+    await this.initializeBridge();
 
     // First try to find existing player
     this.findPlayer();
@@ -112,84 +137,78 @@ export class VideoDetector {
   }
 
   /**
-   * Find the YouTube player element
+   * Initialize the bridge script for communicating with the YouTube player
    */
-  private findPlayer(): void {
-    // Try to find the player element
-    const player = document.querySelector('#movie_player') as YouTubePlayer;
-    
-    if (!player) {
-      logger.debug('Player element not found');
-      return;
+  private async initializeBridge(): Promise<void> {
+    if (this.bridgeInitialized) return;
+
+    // Ensure we have a valid tab ID before proceeding
+    if (this.tabId === -1) {
+      logger.debug('No valid tab ID, attempting to initialize...');
+      await this.initializeTabId();
     }
 
-    // If we already found and validated this player, skip
-    if (this.player === player) {
-      return;
+    if (this.tabId === -1) {
+      throw new Error('Cannot initialize bridge without a valid tab ID');
     }
 
-    logger.debug('Found player element, checking API initialization...');
-    logger.debug('Found player element:', player);
+    logger.debug('Initializing bridge script');
 
-    // Wait for YouTube API to initialize
-    this.waitForPlayerAPI(player, 0).catch(error => {
-      logger.error('Failed waiting for player API:', error);
+    try {
+      // Send message to background script to inject the bridge
+      await chrome.runtime.sendMessage({
+        type: BackgroundMessageType.INJECT_BRIDGE,
+        tabId: this.tabId
+      });
+
+      this.bridgeInitialized = true;
+      logger.debug('Bridge script injected successfully');
+    } catch (error) {
+      logger.error('Failed to inject bridge script:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Setup listener for bridge script messages
+   */
+  private setupBridgeListener(): void {
+    window.addEventListener('message', (event) => {
+      if (event.data.type !== 'PLAYER_STATUS') return;
+
+      logger.debug('Received bridge response:', event.data);
+
+      switch (event.data.status) {
+        case 'ready':
+          const player = document.querySelector('#movie_player') as YouTubePlayer;
+          if (player && !this.player) {
+            this.handlePlayerFound(player);
+          }
+          break;
+
+        case 'not_found':
+          logger.debug('Player element not found');
+          break;
+
+        case 'api_not_ready':
+          logger.debug('Player API not ready:', event.data.methods);
+          break;
+
+        case 'error':
+          logger.warn('Error in bridge script:', event.data.error);
+          break;
+      }
     });
   }
 
   /**
-   * Wait for YouTube player API to initialize with exponential backoff
+   * Find the YouTube player element
    */
-  private async waitForPlayerAPI(player: YouTubePlayer, attempt: number): Promise<void> {
-    // Max 10 attempts (about 10 seconds total)
-    const MAX_ATTEMPTS = 10;
-    // Start with 100ms delay, double each time
-    const delay = Math.min(100 * Math.pow(2, attempt), 2000);
+  private findPlayer(): void {
+    if (this.player) return;
 
-    if (attempt >= MAX_ATTEMPTS) {
-      logger.warn('Gave up waiting for player API initialization');
-      return;
-    }
-
-    // Check if API is ready
-    if (this.isValidPlayer(player)) {
-      logger.info('YouTube player API initialized');
-      await this.handlePlayerFound(player);
-      return;
-    }
-
-    // Wait and try again
-    await new Promise(resolve => setTimeout(resolve, delay));
-    await this.waitForPlayerAPI(player, attempt + 1);
-  }
-
-  /**
-   * Validate that the player has the expected API methods
-   */
-  private isValidPlayer(player: YouTubePlayer): boolean {
-    const hasRequiredMethods = 
-      typeof player.getVideoData === 'function' &&
-      typeof player.getCurrentTime === 'function' &&
-      typeof player.getDuration === 'function' &&
-      typeof player.getPlayerState === 'function';
-
-    if (!hasRequiredMethods) {
-      logger.debug('Player validation failed, missing required methods:', {
-        hasGetVideoData: typeof player.getVideoData === 'function',
-        hasGetCurrentTime: typeof player.getCurrentTime === 'function',
-        hasGetDuration: typeof player.getDuration === 'function',
-        hasGetPlayerState: typeof player.getPlayerState === 'function'
-      });
-
-      logger.debug('Property types for player:', {
-        getVideoData: typeof player.getVideoData,
-        getCurrentTime: typeof player.getCurrentTime,
-        getDuration: typeof player.getDuration,
-        getPlayerState: typeof player.getPlayerState
-      });
-    }
-
-    return hasRequiredMethods;
+    window.postMessage({ type: 'QUERY_PLAYER' }, '*');
+    logger.debug('Sent player query through bridge');
   }
 
   /**
@@ -308,5 +327,34 @@ export class VideoDetector {
    */
   public hasValidPlayer(): boolean {
     return this.player !== null && this.isValidPlayer(this.player);
+  }
+
+  /**
+   * Validate that the player has the expected API methods
+   */
+  private isValidPlayer(player: YouTubePlayer): boolean {
+    const hasRequiredMethods = 
+      typeof player.getVideoData === 'function' &&
+      typeof player.getCurrentTime === 'function' &&
+      typeof player.getDuration === 'function' &&
+      typeof player.getPlayerState === 'function';
+
+    if (!hasRequiredMethods) {
+      logger.debug('Player validation failed, missing required methods:', {
+        hasGetVideoData: typeof player.getVideoData === 'function',
+        hasGetCurrentTime: typeof player.getCurrentTime === 'function',
+        hasGetDuration: typeof player.getDuration === 'function',
+        hasGetPlayerState: typeof player.getPlayerState === 'function'
+      });
+
+      logger.debug('Property types for player:', {
+        getVideoData: typeof player.getVideoData,
+        getCurrentTime: typeof player.getCurrentTime,
+        getDuration: typeof player.getDuration,
+        getPlayerState: typeof player.getPlayerState
+      });
+    }
+
+    return hasRequiredMethods;
   }
 } 
