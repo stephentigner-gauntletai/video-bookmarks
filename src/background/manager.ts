@@ -368,8 +368,10 @@ export class BackgroundManager {
         css: `
           .vb-controls {
             position: relative;
-            display: inline-flex;
-            align-items: center;
+          }
+          .vb-controls .ytp-button svg {
+            fill: #fff;
+            transition: fill 0.2s ease;
           }
           .vb-controls.vb-active .ytp-button svg {
             fill: #1a73e8;
@@ -381,10 +383,17 @@ export class BackgroundManager {
             fill: #d93025;
           }
           .vb-controls .ytp-time-display {
+            position: absolute;
+            left: 100%;
+            margin-left: 8px;
+            color: #fff;
+            font-size: 12px;
+            opacity: 0;
             transition: opacity 0.2s ease;
+            white-space: nowrap;
           }
           .vb-controls.vb-active .ytp-time-display {
-            display: inline-block;
+            opacity: 1;
           }
         `
       });

@@ -145,6 +145,9 @@ export class VideoControls {
       padding: 0;
       width: 48px;
       height: 48px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       cursor: pointer;
     `;
     this.button.innerHTML = `
