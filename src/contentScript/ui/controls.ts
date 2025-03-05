@@ -332,7 +332,8 @@ export class VideoControls {
       // Send update to background script if video is playing
       if (playerState === PlayerState.PLAYING) {
         chrome.runtime.sendMessage({
-          type: 'UPDATE_TIMESTAMP',
+          type: BackgroundMessageType.UPDATE_TIMESTAMP,
+          tabId: this.tabId,
           videoId: this.videoId,
           timestamp: currentTime,
           isMaxTimestamp: false

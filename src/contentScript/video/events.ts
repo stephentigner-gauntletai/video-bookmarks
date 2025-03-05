@@ -63,7 +63,7 @@ export class VideoEventMonitor {
     const debouncedTimeUpdate = debounce(this.handleTimeUpdate.bind(this), this.config.debounceTime);
     const debouncedStateChange = debounce(this.handleStateChange.bind(this), this.config.debounceTime);
 
-    // Monitor state changes through the proxy we set up in VideoDetector
+    // Monitor state changes through the proxy
     const originalGetPlayerState = this.player.getPlayerState?.bind(this.player);
     if (originalGetPlayerState) {
       let lastState = originalGetPlayerState();
@@ -74,6 +74,20 @@ export class VideoEventMonitor {
           debouncedStateChange(currentState);
         }
         return currentState;
+      };
+    }
+
+    // Monitor time updates through the proxy
+    const originalGetCurrentTime = this.player.getCurrentTime?.bind(this.player);
+    if (originalGetCurrentTime) {
+      let lastTime = originalGetCurrentTime();
+      this.player.getCurrentTime = () => {
+        const currentTime = originalGetCurrentTime();
+        if (Math.abs(currentTime - lastTime) >= this.config.minTimeDelta) {
+          lastTime = currentTime;
+          debouncedTimeUpdate(currentTime);
+        }
+        return currentTime;
       };
     }
 
