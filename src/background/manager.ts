@@ -85,6 +85,13 @@ export class BackgroundManager {
       return true;
     }
 
+    // Handle CSS injection
+    if (message.type === BackgroundMessageType.INJECT_STYLES) {
+      this.injectStyles(message.tabId);
+      sendResponse();
+      return true;
+    }
+
     // For all other messages, ensure we have a valid tabId
     const tabId = sender.tab?.id;
     if (typeof tabId !== 'number') {
@@ -348,6 +355,41 @@ export class BackgroundManager {
     } catch (error) {
       console.error('[Video Bookmarks] Failed to inject bridge script:', error);
       throw error;
+    }
+  }
+
+  /**
+   * Inject CSS styles into the page
+   */
+  private async injectStyles(tabId: number): Promise<void> {
+    try {
+      await chrome.scripting.insertCSS({
+        target: { tabId },
+        css: `
+          .vb-controls {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+          }
+          .vb-controls.vb-active .ytp-button svg {
+            fill: #1a73e8;
+          }
+          .vb-controls.vb-saving .ytp-button svg {
+            opacity: 0.7;
+          }
+          .vb-controls.vb-error .ytp-button svg {
+            fill: #d93025;
+          }
+          .vb-controls .ytp-time-display {
+            transition: opacity 0.2s ease;
+          }
+          .vb-controls.vb-active .ytp-time-display {
+            display: inline-block;
+          }
+        `
+      });
+    } catch (error) {
+      console.error('Failed to inject styles:', error);
     }
   }
 } 

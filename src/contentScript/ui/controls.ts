@@ -135,7 +135,6 @@ export class VideoControls {
     // Create container that matches YouTube's control layout
     this.container = document.createElement('div');
     this.container.className = `${this.config.containerClass} ytp-button`;
-    this.container.style.cssText = 'display: flex; align-items: center; height: 100%;';
 
     // Create bookmark button that matches YouTube's button style
     this.button = document.createElement('button');
@@ -147,9 +146,6 @@ export class VideoControls {
       width: 48px;
       height: 48px;
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
     `;
     this.button.innerHTML = `
       <svg height="24" width="24" viewBox="0 0 24 24" fill="currentColor">
@@ -204,34 +200,12 @@ export class VideoControls {
         subtree: true
       });
     }
-  }
 
-  /**
-   * Inject required CSS styles
-   */
-  private injectStyles(): void {
-    const style = document.createElement('style');
-    style.textContent = `
-      .${this.config.containerClass} {
-        position: relative;
-      }
-      .${this.config.containerClass}.${this.config.activeClass} .ytp-button svg {
-        fill: #1a73e8;
-      }
-      .${this.config.containerClass}.${this.config.savingClass} .ytp-button svg {
-        opacity: 0.7;
-      }
-      .${this.config.containerClass}.${this.config.errorClass} .ytp-button svg {
-        fill: #d93025;
-      }
-      .${this.config.containerClass} .ytp-time-display {
-        transition: opacity 0.2s ease;
-      }
-      .${this.config.containerClass}.${this.config.activeClass} .ytp-time-display {
-        display: inline-block;
-      }
-    `;
-    document.head.appendChild(style);
+    // Request CSS injection from background script
+    chrome.runtime.sendMessage({
+      type: BackgroundMessageType.INJECT_STYLES,
+      tabId: this.tabId
+    });
   }
 
   /**

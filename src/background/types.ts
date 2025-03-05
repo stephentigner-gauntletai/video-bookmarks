@@ -34,7 +34,8 @@ export enum BackgroundMessageType {
   CHECK_PLAYER_READY = 'CHECK_PLAYER_READY',
   GET_VIDEO_DATA = 'GET_VIDEO_DATA',
   GET_PLAYER_STATE = 'GET_PLAYER_STATE',
-  GET_CURRENT_TIME = 'GET_CURRENT_TIME'
+  GET_CURRENT_TIME = 'GET_CURRENT_TIME',
+  INJECT_STYLES = 'INJECT_STYLES'
 }
 
 /**
@@ -138,6 +139,13 @@ export interface GetCurrentTimeMessage extends TabBackgroundMessage {
 }
 
 /**
+ * Message to inject CSS styles
+ */
+export interface InjectStylesMessage extends TabBackgroundMessage {
+  type: BackgroundMessageType.INJECT_STYLES;
+}
+
+/**
  * Union type of all possible background messages
  */
 export type BackgroundMessageUnion = 
@@ -150,4 +158,5 @@ export type BackgroundMessageUnion =
   | CheckPlayerReadyMessage
   | GetVideoDataMessage
   | GetPlayerStateMessage
-  | GetCurrentTimeMessage; 
+  | GetCurrentTimeMessage
+  | InjectStylesMessage; 
