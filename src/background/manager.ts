@@ -11,6 +11,7 @@ import {
   UpdateTimestampMessage,
   GetVideoStateMessage
 } from './types';
+import { handlePlayerProxyMessage } from './playerProxy';
 
 /**
  * Manager class for background script functionality
@@ -73,12 +74,14 @@ export class BackgroundManager {
       return true;
     }
 
-    // Special case for INJECT_BRIDGE message
-    if (message.type === BackgroundMessageType.INJECT_BRIDGE) {
-      console.debug('[Video Bookmarks] Handling INJECT_BRIDGE message', {
-        tabId: message.tabId
-      });
-      this.injectBridgeScript(message.tabId).then(sendResponse);
+    // Handle player proxy messages
+    if ([
+      BackgroundMessageType.CHECK_PLAYER_READY,
+      BackgroundMessageType.GET_VIDEO_DATA,
+      BackgroundMessageType.GET_PLAYER_STATE,
+      BackgroundMessageType.GET_CURRENT_TIME
+    ].includes(message.type)) {
+      handlePlayerProxyMessage(message, sendResponse);
       return true;
     }
 

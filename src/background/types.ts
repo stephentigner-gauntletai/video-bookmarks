@@ -30,7 +30,11 @@ export enum BackgroundMessageType {
   UPDATE_TIMESTAMP = 'UPDATE_TIMESTAMP',
   GET_VIDEO_STATE = 'GET_VIDEO_STATE',
   GET_TAB_ID = 'GET_TAB_ID',
-  INJECT_BRIDGE = 'INJECT_BRIDGE'
+  INJECT_BRIDGE = 'INJECT_BRIDGE',
+  CHECK_PLAYER_READY = 'CHECK_PLAYER_READY',
+  GET_VIDEO_DATA = 'GET_VIDEO_DATA',
+  GET_PLAYER_STATE = 'GET_PLAYER_STATE',
+  GET_CURRENT_TIME = 'GET_CURRENT_TIME'
 }
 
 /**
@@ -106,6 +110,34 @@ export interface InjectBridgeMessage extends TabBackgroundMessage {
 }
 
 /**
+ * Message to check if player is ready
+ */
+export interface CheckPlayerReadyMessage extends TabBackgroundMessage {
+  type: BackgroundMessageType.CHECK_PLAYER_READY;
+}
+
+/**
+ * Message to get video data
+ */
+export interface GetVideoDataMessage extends TabBackgroundMessage {
+  type: BackgroundMessageType.GET_VIDEO_DATA;
+}
+
+/**
+ * Message to get player state
+ */
+export interface GetPlayerStateMessage extends TabBackgroundMessage {
+  type: BackgroundMessageType.GET_PLAYER_STATE;
+}
+
+/**
+ * Message to get current time
+ */
+export interface GetCurrentTimeMessage extends TabBackgroundMessage {
+  type: BackgroundMessageType.GET_CURRENT_TIME;
+}
+
+/**
  * Union type of all possible background messages
  */
 export type BackgroundMessageUnion = 
@@ -114,4 +146,8 @@ export type BackgroundMessageUnion =
   | UpdateTimestampMessage
   | GetVideoStateMessage
   | GetTabIdMessage
-  | InjectBridgeMessage; 
+  | InjectBridgeMessage
+  | CheckPlayerReadyMessage
+  | GetVideoDataMessage
+  | GetPlayerStateMessage
+  | GetCurrentTimeMessage; 
