@@ -1,7 +1,8 @@
 import { logger } from '../logger';
 import { debounce } from '../utils';
-import { YouTubePlayer, PlayerState } from './types';
+import { PlayerState } from './types';
 import { BackgroundMessageType } from '../../background/types';
+import { getCurrentTime, getPlayerState, getVideoData } from './playerProxy';
 
 /**
  * Configuration for video event monitoring
@@ -25,15 +26,14 @@ const DEFAULT_CONFIG: EventMonitorConfig = {
  * Class responsible for monitoring video events and tracking timestamps
  */
 export class VideoEventMonitor {
-  private player: YouTubePlayer;
   private config: EventMonitorConfig;
   private updateInterval: number | null = null;
   private lastTimestamp: number = 0;
   private maxTimestamp: number = 0;
   private tabId: number;
+  private lastState: PlayerState = PlayerState.UNSTARTED;
 
-  constructor(player: YouTubePlayer, tabId: number, config: Partial<EventMonitorConfig> = {}) {
-    this.player = player;
+  constructor(tabId: number, config: Partial<EventMonitorConfig> = {}) {
     this.tabId = tabId;
     this.config = { ...DEFAULT_CONFIG, ...config };
   }
@@ -43,7 +43,6 @@ export class VideoEventMonitor {
    */
   public start(): void {
     logger.debug('Starting video event monitoring');
-    this.setupEventListeners();
     this.startTimeTracking();
   }
 
@@ -56,55 +55,31 @@ export class VideoEventMonitor {
   }
 
   /**
-   * Setup event listeners for the video player
-   */
-  private setupEventListeners(): void {
-    // Create debounced update functions
-    const debouncedTimeUpdate = debounce(this.handleTimeUpdate.bind(this), this.config.debounceTime);
-    const debouncedStateChange = debounce(this.handleStateChange.bind(this), this.config.debounceTime);
-
-    // Monitor state changes through the proxy
-    const originalGetPlayerState = this.player.getPlayerState?.bind(this.player);
-    if (originalGetPlayerState) {
-      let lastState = originalGetPlayerState();
-      this.player.getPlayerState = () => {
-        const currentState = originalGetPlayerState();
-        if (currentState !== lastState) {
-          lastState = currentState;
-          debouncedStateChange(currentState);
-        }
-        return currentState;
-      };
-    }
-
-    // Monitor time updates through the proxy
-    const originalGetCurrentTime = this.player.getCurrentTime?.bind(this.player);
-    if (originalGetCurrentTime) {
-      let lastTime = originalGetCurrentTime();
-      this.player.getCurrentTime = () => {
-        const currentTime = originalGetCurrentTime();
-        if (Math.abs(currentTime - lastTime) >= this.config.minTimeDelta) {
-          lastTime = currentTime;
-          debouncedTimeUpdate(currentTime);
-        }
-        return currentTime;
-      };
-    }
-
-    // Start periodic time checks
-    this.startTimeTracking();
-  }
-
-  /**
    * Start tracking video time
    */
   private startTimeTracking(): void {
     this.clearTimeTracking();
 
-    this.updateInterval = window.setInterval(() => {
-      const currentTime = this.player.getCurrentTime?.() || 0;
-      if (Math.abs(currentTime - this.lastTimestamp) >= this.config.minTimeDelta) {
-        this.handleTimeUpdate(currentTime);
+    // Create debounced update functions
+    const debouncedTimeUpdate = debounce(this.handleTimeUpdate.bind(this), this.config.debounceTime);
+    const debouncedStateChange = debounce(this.handleStateChange.bind(this), this.config.debounceTime);
+
+    this.updateInterval = window.setInterval(async () => {
+      try {
+        // Check current time
+        const currentTime = await getCurrentTime(this.tabId);
+        if (Math.abs(currentTime - this.lastTimestamp) >= this.config.minTimeDelta) {
+          debouncedTimeUpdate(currentTime);
+        }
+
+        // Check player state
+        const currentState = await getPlayerState(this.tabId);
+        if (currentState !== this.lastState) {
+          this.lastState = currentState;
+          debouncedStateChange(currentState);
+        }
+      } catch (error) {
+        logger.error('Error during time tracking:', error);
       }
     }, this.config.updateInterval) as unknown as number;
   }
@@ -122,34 +97,46 @@ export class VideoEventMonitor {
   /**
    * Handle video time updates
    */
-  private handleTimeUpdate(currentTime: number): void {
+  private async handleTimeUpdate(currentTime: number): Promise<void> {
     // Update timestamps
     this.lastTimestamp = currentTime;
     this.maxTimestamp = Math.max(this.maxTimestamp, currentTime);
 
+    // Get video data for the update
+    const videoData = await getVideoData(this.tabId);
+    if (!videoData) {
+      logger.error('Failed to get video data for timestamp update');
+      return;
+    }
+
     // Send updates to background script
-    this.sendTimestampUpdate(currentTime, false);  // Current position
-    this.sendTimestampUpdate(this.maxTimestamp, true);  // Max position
+    this.sendTimestampUpdate(videoData.id, currentTime, false);  // Current position
+    this.sendTimestampUpdate(videoData.id, this.maxTimestamp, true);  // Max position
   }
 
   /**
    * Handle player state changes
    */
-  private handleStateChange(state: PlayerState): void {
+  private async handleStateChange(state: PlayerState): Promise<void> {
     logger.debug('Player state changed', { state: PlayerState[state] });
+
+    const videoData = await getVideoData(this.tabId);
+    if (!videoData) {
+      logger.error('Failed to get video data for state change');
+      return;
+    }
 
     switch (state) {
       case PlayerState.ENDED:
-        // Video ended, update max timestamp
-        const duration = this.player.getDuration?.() || 0;
-        this.maxTimestamp = duration;
-        this.sendTimestampUpdate(duration, true);
+        // Video ended, update max timestamp to duration
+        this.maxTimestamp = videoData.duration;
+        this.sendTimestampUpdate(videoData.id, videoData.duration, true);
         break;
 
       case PlayerState.PAUSED:
         // Video paused, update timestamps immediately
-        const currentTime = this.player.getCurrentTime?.() || 0;
-        this.handleTimeUpdate(currentTime);
+        const currentTime = await getCurrentTime(this.tabId);
+        await this.handleTimeUpdate(currentTime);
         break;
     }
   }
@@ -157,11 +144,11 @@ export class VideoEventMonitor {
   /**
    * Send timestamp update to background script
    */
-  private sendTimestampUpdate(timestamp: number, isMaxTimestamp: boolean): void {
+  private sendTimestampUpdate(videoId: string, timestamp: number, isMaxTimestamp: boolean): void {
     chrome.runtime.sendMessage({
       type: BackgroundMessageType.UPDATE_TIMESTAMP,
       tabId: this.tabId,
-      videoId: this.player.getVideoData?.()?.video_id,
+      videoId,
       timestamp,
       isMaxTimestamp
     });

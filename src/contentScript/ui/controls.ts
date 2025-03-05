@@ -1,9 +1,9 @@
 import { logger } from '../logger';
 import { BackgroundMessageType } from '../../background/types';
 import { GetVideoStateResponse } from '../../background/types';
-import { YouTubePlayer } from '../video/types';
 import { getVideoData, getCurrentTime, getPlayerState, isPlayerReady } from '../video/playerProxy';
-import { VideoMetadata, PlayerState } from '../video/types';
+import { PlayerState } from '../video/types';
+import { VideoEventMonitor } from '../video/events';
 
 /**
  * Configuration for UI controls
@@ -37,11 +37,11 @@ export class VideoControls {
   private button: HTMLElement | null = null;
   private timestampDisplay: HTMLElement | null = null;
   private updateInterval: number | null = null;
-  private player: YouTubePlayer | null = null;
   private tabId: number;
   private videoId: string | null = null;
   private isActive: boolean = false;
   private isSaving: boolean = false;
+  private eventMonitor: VideoEventMonitor | null = null;
 
   private constructor(tabId: number, config: Partial<ControlsConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -118,11 +118,14 @@ export class VideoControls {
    */
   public destroy(): void {
     this.stopTimestampUpdates();
+    if (this.eventMonitor) {
+      this.eventMonitor.stop();
+      this.eventMonitor = null;
+    }
     this.container?.remove();
     this.container = null;
     this.button = null;
     this.timestampDisplay = null;
-    this.player = null;
     this.videoId = null;
     this.isActive = false;
     this.isSaving = false;
@@ -257,6 +260,10 @@ export class VideoControls {
       title: videoData.title
     });
 
+    // Start event monitoring
+    this.eventMonitor = new VideoEventMonitor(this.tabId);
+    this.eventMonitor.start();
+
     this.setActive(true);
   }
 
@@ -265,6 +272,12 @@ export class VideoControls {
    */
   private async deactivateBookmark(): Promise<void> {
     if (!this.videoId) return;
+
+    // Stop event monitoring
+    if (this.eventMonitor) {
+      this.eventMonitor.stop();
+      this.eventMonitor = null;
+    }
 
     // Send video closed message
     chrome.runtime.sendMessage({
