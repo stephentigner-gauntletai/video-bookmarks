@@ -2,6 +2,8 @@ import { logger } from '../logger';
 import { BackgroundMessageType } from '../../background/types';
 import { GetVideoStateResponse } from '../../background/types';
 import { YouTubePlayer } from '../video/types';
+import { getVideoData, getCurrentTime, getPlayerState, isPlayerReady } from '../video/playerProxy';
+import { VideoMetadata, PlayerState } from '../video/types';
 
 /**
  * Configuration for UI controls
@@ -70,20 +72,25 @@ export class VideoControls {
   /**
    * Initialize the controls
    */
-  public async initialize(player: YouTubePlayer): Promise<void> {
+  public async initialize(): Promise<void> {
     try {
       logger.debug('Starting UI controls initialization');
       
-      // Get video data first
-      const videoData = player.getVideoData?.();
-      logger.debug('Retrieved video data:', videoData);
-      
-      if (!videoData?.video_id) {
-        throw new Error('No video ID available in player data');
+      // Check if player is ready
+      const ready = await isPlayerReady(this.tabId);
+      if (!ready) {
+        throw new Error('YouTube player not ready');
       }
 
-      this.videoId = videoData.video_id;
-      this.player = player;
+      // Get video data
+      const videoData = await getVideoData(this.tabId);
+      logger.debug('Retrieved video data:', videoData);
+      
+      if (!videoData?.id) {
+        throw new Error('Failed to get video ID from player');
+      }
+
+      this.videoId = videoData.id;
 
       // Create and inject controls
       logger.debug('Creating UI controls');
@@ -330,7 +337,7 @@ export class VideoControls {
     this.stopTimestampUpdates();
 
     this.updateInterval = window.setInterval(() => {
-      this.updateTimestampDisplay();
+      this.updateTimestamp();
     }, this.config.updateInterval) as unknown as number;
   }
 
@@ -347,15 +354,28 @@ export class VideoControls {
   /**
    * Update timestamp display
    */
-  private updateTimestampDisplay(): void {
-    if (!this.timestampDisplay || !this.player || !this.isActive) {
-      return;
-    }
+  private async updateTimestamp(): Promise<void> {
+    if (!this.videoId || !this.timestampDisplay) return;
 
-    const currentTime = this.player.getCurrentTime?.() || 0;
-    const duration = this.player.getDuration?.() || 0;
-    
-    this.timestampDisplay.textContent = `${this.formatTime(currentTime)} / ${this.formatTime(duration)}`;
+    try {
+      const currentTime = await getCurrentTime(this.tabId);
+      const playerState = await getPlayerState(this.tabId);
+
+      // Update timestamp display
+      this.timestampDisplay.textContent = this.formatTime(currentTime);
+
+      // Send update to background script if video is playing
+      if (playerState === PlayerState.PLAYING) {
+        chrome.runtime.sendMessage({
+          type: 'UPDATE_TIMESTAMP',
+          videoId: this.videoId,
+          timestamp: currentTime,
+          isMaxTimestamp: false
+        });
+      }
+    } catch (error) {
+      logger.error('Failed to update timestamp:', error);
+    }
   }
 
   /**

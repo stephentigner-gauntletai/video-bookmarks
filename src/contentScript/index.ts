@@ -1,8 +1,6 @@
 import { logger, LogLevel } from './logger';
-import { isYouTubeVideoPage, extractVideoId, waitForPageLoad } from './utils';
-import { storageManager } from '../storage';
+import { isYouTubeVideoPage, waitForPageLoad } from './utils';
 import { VideoDetector } from './video/detector';
-import { VideoMetadata, PlayerState, YouTubePlayer } from './video/types';
 
 // Configure logger to show debug messages
 logger.configure({
@@ -14,7 +12,6 @@ logger.configure({
 class VideoBookmarkContentScript {
   private static instance: VideoBookmarkContentScript;
   private videoDetector: VideoDetector | null = null;
-  private currentVideoId: string | null = null;
 
   private constructor() {}
 
@@ -44,17 +41,7 @@ class VideoBookmarkContentScript {
         return;
       }
 
-      // Extract video ID
-      const videoId = extractVideoId();
-      if (!videoId) {
-        logger.warn('Could not extract video ID from URL');
-        return;
-      }
-
-      logger.info('Detected YouTube video page', { videoId });
-
-      // Initialize storage
-      await storageManager.initialize();
+      logger.info('Detected YouTube video page');
 
       // Initialize video detector
       await this.initializeVideoDetector();
@@ -64,54 +51,21 @@ class VideoBookmarkContentScript {
 
       logger.info('Content script initialized successfully');      
     } catch (error) {
-      logger.error('Failed to initialize content script', error);
+      logger.error('Failed to initialize content script:', error);
     }
   }
 
   /**
-   * Initialize video detector with event handlers
+   * Initialize video detector
    */
   private async initializeVideoDetector(): Promise<void> {
-    this.videoDetector = await VideoDetector.getInstance();
-    await this.videoDetector.initialize({
-      onPlayerFound: this.handlePlayerFound.bind(this),
-      onPlayerLost: this.handlePlayerLost.bind(this),
-      onMetadataUpdated: this.handleMetadataUpdated.bind(this),
-      onStateChange: this.handlePlayerStateChange.bind(this)
-    });
-  }
-
-  /**
-   * Handle when the video player is found
-   */
-  private handlePlayerFound(player: YouTubePlayer): void {
-    logger.info('YouTube player found and ready');
-  }
-
-  /**
-   * Handle when the video player is lost/removed
-   */
-  private handlePlayerLost(): void {
-    logger.info('YouTube player removed');
-    this.currentVideoId = null;
-  }
-
-  /**
-   * Handle video metadata updates
-   */
-  private handleMetadataUpdated(metadata: VideoMetadata): void {
-    // Only log when video ID changes
-    if (this.currentVideoId !== metadata.id) {
-      this.currentVideoId = metadata.id;
-      logger.info('Video metadata updated', metadata);
+    try {
+      this.videoDetector = await VideoDetector.getInstance();
+      await this.videoDetector.initialize();
+    } catch (error) {
+      logger.error('Failed to initialize video detector:', error);
+      this.videoDetector = null;
     }
-  }
-
-  /**
-   * Handle player state changes
-   */
-  private handlePlayerStateChange(state: PlayerState): void {
-    logger.debug('Player state changed', { state: PlayerState[state] });
   }
 
   /**
@@ -155,12 +109,19 @@ class VideoBookmarkContentScript {
     this.lastUrl = newUrl;
 
     if (isYouTubeVideoPage()) {
-      const videoId = extractVideoId(newUrl);
-      logger.info('URL changed to new video', { videoId });
+      logger.info('URL changed to new video page');
 
       // Reset video detector on URL change
-      this.videoDetector?.destroy();
+      if (this.videoDetector) {
+        this.videoDetector.destroy();
+      }
       this.initializeVideoDetector();
+    } else {
+      logger.debug('URL changed to non-video page');
+      if (this.videoDetector) {
+        this.videoDetector.destroy();
+        this.videoDetector = null;
+      }
     }
   }
 }
@@ -168,5 +129,5 @@ class VideoBookmarkContentScript {
 // Initialize content script
 const contentScript = VideoBookmarkContentScript.getInstance();
 contentScript.initialize().catch((error) => {
-  logger.error('Failed to initialize content script', error);
+  logger.error('Failed to initialize content script:', error);
 });
