@@ -132,51 +132,77 @@ export class VideoControls {
    * Create UI controls
    */
   private createControls(): void {
-    // Create container
+    // Create container that matches YouTube's control layout
     this.container = document.createElement('div');
-    this.container.className = this.config.containerClass;
+    this.container.className = `${this.config.containerClass} ytp-button`;
+    this.container.style.cssText = 'display: flex; align-items: center; height: 100%;';
 
-    // Create bookmark button
+    // Create bookmark button that matches YouTube's button style
     this.button = document.createElement('button');
-    this.button.className = 'vb-button ytp-button'; // Add ytp-button class for YouTube styling
+    this.button.className = 'ytp-button';
+    this.button.style.cssText = `
+      border: none;
+      background: none;
+      padding: 0;
+      width: 48px;
+      height: 48px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    `;
     this.button.innerHTML = `
-      <span class="vb-icon">🔖</span>
-      <span class="vb-label">Bookmark</span>
+      <svg height="24" width="24" viewBox="0 0 24 24" fill="currentColor">
+        <path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15l-5-2.18L7 18V5h10v13z"/>
+      </svg>
     `;
     this.button.addEventListener('click', this.handleButtonClick.bind(this));
 
-    // Create timestamp display
+    // Create timestamp display that matches YouTube's style
     this.timestampDisplay = document.createElement('div');
-    this.timestampDisplay.className = 'vb-timestamp';
+    this.timestampDisplay.className = 'ytp-time-display';
+    this.timestampDisplay.style.cssText = `
+      color: #fff;
+      font-size: 12px;
+      margin-left: 8px;
+      display: none;
+    `;
 
     // Add elements to container
     this.container.appendChild(this.button);
     this.container.appendChild(this.timestampDisplay);
 
-    // Try to insert into YouTube player controls
+    // Try to inject the controls into the YouTube player
+    this.injectControls();
+  }
+
+  /**
+   * Inject controls into the YouTube player
+   */
+  private injectControls(): void {
     const tryInjectControls = () => {
+      // Find the right-side controls container
       const rightControls = document.querySelector('.ytp-right-controls');
-      if (rightControls) {
-        // Insert before the first child of right controls
-        rightControls.insertBefore(this.container!, rightControls.firstChild);
-        return true;
-      }
-      return false;
+      if (!rightControls || !this.container) return false;
+
+      // Insert our controls before the settings button
+      rightControls.insertBefore(this.container, rightControls.firstChild);
+      return true;
     };
 
-    // If immediate injection fails, retry a few times
+    // Try to inject immediately
     if (!tryInjectControls()) {
-      let attempts = 0;
-      const maxAttempts = 5;
-      const interval = setInterval(() => {
-        if (tryInjectControls() || attempts >= maxAttempts) {
-          clearInterval(interval);
-          if (attempts >= maxAttempts) {
-            logger.warn('Could not find YouTube player controls after multiple attempts');
-          }
+      // If failed, set up an observer to wait for the controls to be ready
+      const observer = new MutationObserver((mutations, obs) => {
+        if (tryInjectControls()) {
+          obs.disconnect();
         }
-        attempts++;
-      }, 1000);
+      });
+
+      observer.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
     }
   }
 
@@ -184,72 +210,28 @@ export class VideoControls {
    * Inject required CSS styles
    */
   private injectStyles(): void {
-    const styles = document.createElement('style');
-    styles.textContent = `
+    const style = document.createElement('style');
+    style.textContent = `
       .${this.config.containerClass} {
-        display: flex;
-        align-items: center;
-        margin-right: 8px;
-        height: 100%;
+        position: relative;
       }
-
-      .vb-button {
-        display: flex;
-        align-items: center;
-        background: transparent;
-        border: none;
-        color: #fff;
-        cursor: pointer;
-        padding: 0 8px;
-        height: 36px;
-        opacity: 0.9;
-        transition: opacity 0.2s;
+      .${this.config.containerClass}.${this.config.activeClass} .ytp-button svg {
+        fill: #1a73e8;
       }
-
-      .vb-button:hover {
-        opacity: 1;
-      }
-
-      .vb-icon {
-        font-size: 16px;
-        margin-right: 4px;
-        line-height: 1;
-      }
-
-      .vb-label {
-        font-size: 13px;
-        font-family: Roboto, Arial, sans-serif;
-        line-height: 36px;
-      }
-
-      .vb-timestamp {
-        color: #fff;
-        font-size: 13px;
-        margin-left: 8px;
-        opacity: 0.9;
-        font-family: Roboto, Arial, sans-serif;
-        line-height: 36px;
-      }
-
-      .${this.config.activeClass} .vb-button {
-        color: #3ea6ff;
-      }
-
-      .${this.config.savingClass} .vb-button {
+      .${this.config.containerClass}.${this.config.savingClass} .ytp-button svg {
         opacity: 0.7;
-        pointer-events: none;
       }
-
-      .${this.config.errorClass} .vb-button {
-        color: #ff6b6b;
+      .${this.config.containerClass}.${this.config.errorClass} .ytp-button svg {
+        fill: #d93025;
       }
-
-      /* Hide label on small players */
-      .ytp-small-mode .vb-label {
-        display: none;
+      .${this.config.containerClass} .ytp-time-display {
+        transition: opacity 0.2s ease;
+      }
+      .${this.config.containerClass}.${this.config.activeClass} .ytp-time-display {
+        display: inline-block;
       }
     `;
-    document.head.appendChild(styles);
+    document.head.appendChild(style);
   }
 
   /**
@@ -379,7 +361,7 @@ export class VideoControls {
   }
 
   /**
-   * Format time in seconds to MM:SS or HH:MM:SS
+   * Format time in seconds to HH:MM:SS or MM:SS
    */
   private formatTime(seconds: number): string {
     const hours = Math.floor(seconds / 3600);
@@ -423,4 +405,4 @@ export class VideoControls {
       this.container.classList.toggle(this.config.errorClass, error);
     }
   }
-} 
+}
