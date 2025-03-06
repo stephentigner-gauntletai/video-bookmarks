@@ -38,7 +38,8 @@ export class VideoControls {
   private static instance: VideoControls;
   private config: ControlsConfig;
   private container: HTMLElement | null = null;
-  private button: HTMLElement | null = null;
+  private bookmarkButton: HTMLElement | null = null;
+  private undoButton: HTMLElement | null = null;
   private timestampDisplay: HTMLElement | null = null;
   private updateInterval: number | null = null;
   private tabId: number;
@@ -47,7 +48,6 @@ export class VideoControls {
   private isSaving: boolean = false;
   private eventMonitor: VideoEventMonitor | null = null;
   private undoTimer: number | null = null;
-  private undoElement: HTMLElement | null = null;
 
   private constructor(tabId: number, config: Partial<ControlsConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -130,7 +130,8 @@ export class VideoControls {
     }
     this.container?.remove();
     this.container = null;
-    this.button = null;
+    this.bookmarkButton = null;
+    this.undoButton = null;
     this.timestampDisplay = null;
     this.videoId = null;
     this.isActive = false;
@@ -147,9 +148,9 @@ export class VideoControls {
     this.container.className = `${this.config.containerClass} ytp-button`;
 
     // Create bookmark button that matches YouTube's button style
-    this.button = document.createElement('button');
-    this.button.className = 'ytp-button';
-    this.button.style.cssText = `
+    this.bookmarkButton = document.createElement('button');
+    this.bookmarkButton.className = 'ytp-button';
+    this.bookmarkButton.style.cssText = `
       border: none;
       background: none;
       padding: 0;
@@ -160,12 +161,35 @@ export class VideoControls {
       justify-content: center;
       cursor: pointer;
     `;
-    this.button.innerHTML = `
+    this.bookmarkButton.innerHTML = `
       <svg height="24" width="24" viewBox="0 0 24 24" fill="currentColor">
         <path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15l-5-2.18L7 18V5h10v13z"/>
       </svg>
     `;
-    this.button.addEventListener('click', this.handleButtonClick.bind(this));
+    this.bookmarkButton.addEventListener('click', this.handleButtonClick.bind(this));
+
+    // Create undo button with same styling
+    this.undoButton = document.createElement('button');
+    this.undoButton.className = 'ytp-button';
+    this.undoButton.style.cssText = `
+      border: none;
+      background: none;
+      padding: 0;
+      width: 48px;
+      height: 48px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      color: #f28b82;
+    `;
+    this.undoButton.innerHTML = `
+      <div style="display: flex; align-items: center; justify-content: center; font-family: Roboto, Arial, sans-serif;">
+        <span style="font-size: 10px; font-weight: 500;">UNDO (5)</span>
+      </div>
+    `;
+    this.undoButton.title = 'Click to undo deletion';
+    this.undoButton.addEventListener('click', this.handleUndo.bind(this));
 
     // Create timestamp display that matches YouTube's style
     this.timestampDisplay = document.createElement('div');
@@ -177,45 +201,10 @@ export class VideoControls {
       display: none;
     `;
 
-    // Create undo element
-    this.undoElement = document.createElement('div');
-    this.undoElement.className = 'vb-undo';
-    this.undoElement.style.cssText = `
-      position: absolute;
-      left: 100%;
-      top: 50%;
-      transform: translateY(-50%);
-      background: rgba(0, 0, 0, 0.8);
-      color: white;
-      padding: 4px 8px;
-      border-radius: 4px;
-      font-size: 12px;
-      display: none;
-      white-space: nowrap;
-      margin-left: 8px;
-      z-index: 1000;
-    `;
-
-    const undoButton = document.createElement('button');
-    undoButton.textContent = 'UNDO';
-    undoButton.style.cssText = `
-      background: none;
-      border: none;
-      color: #3ea6ff;
-      cursor: pointer;
-      padding: 0 4px;
-      font-weight: 500;
-    `;
-    undoButton.addEventListener('click', this.handleUndo.bind(this));
-
-    this.undoElement.appendChild(document.createTextNode('Bookmark will be removed. '));
-    this.undoElement.appendChild(undoButton);
-    this.undoElement.appendChild(document.createElement('span')); // For countdown
-
     // Add elements to container
-    this.container.appendChild(this.button);
+    this.container.appendChild(this.bookmarkButton);
+    this.container.appendChild(this.undoButton);
     this.container.appendChild(this.timestampDisplay);
-    this.container.appendChild(this.undoElement);
 
     // Try to inject the controls into the YouTube player
     this.injectControls();
@@ -359,24 +348,21 @@ export class VideoControls {
    * Show undo UI with countdown
    */
   private showUndoUI(): void {
-    if (!this.undoElement) return;
+    if (!this.bookmarkButton || !this.undoButton) return;
 
-    // Show undo element
-    this.undoElement.style.display = 'block';
-    this.container?.classList.add(this.config.deletingClass);
+    // Hide bookmark button, show undo button
+    this.bookmarkButton.style.display = 'none';
+    this.undoButton.style.display = 'flex';
 
     // Start countdown
     let timeLeft = Math.floor(this.config.undoTimeout / 1000);
-    const countdownSpan = this.undoElement.querySelector('span');
-    if (countdownSpan) {
-      countdownSpan.textContent = `(${timeLeft}s)`;
-    }
-
+    const countdownSpan = this.undoButton.querySelector('span');
+    
     // Update countdown every second
     const countdownInterval = setInterval(() => {
       timeLeft--;
       if (countdownSpan) {
-        countdownSpan.textContent = `(${timeLeft}s)`;
+        countdownSpan.textContent = `UNDO (${timeLeft})`;
       }
     }, 1000);
 
@@ -391,10 +377,11 @@ export class VideoControls {
    * Hide undo UI
    */
   private hideUndoUI(): void {
-    if (this.undoElement) {
-      this.undoElement.style.display = 'none';
-    }
-    this.container?.classList.remove(this.config.deletingClass);
+    if (!this.bookmarkButton || !this.undoButton) return;
+
+    // Show bookmark button, hide undo button
+    this.bookmarkButton.style.display = 'flex';
+    this.undoButton.style.display = 'none';
   }
 
   /**
@@ -518,8 +505,8 @@ export class VideoControls {
     if (this.container) {
       this.container.classList.toggle(this.config.activeClass, active);
     }
-    if (this.button) {
-      this.button.title = active ? 'Stop tracking' : 'Start tracking';
+    if (this.bookmarkButton) {
+      this.bookmarkButton.title = active ? 'Stop tracking' : 'Start tracking';
     }
   }
 
