@@ -66,6 +66,8 @@ export interface VideoDetectedMessage extends TabBackgroundMessage {
   url: string;
   title: string;
   author: string;
+  lastTimestamp?: number;  // Optional last known position
+  maxTimestamp?: number;   // Optional furthest watched position
 }
 
 /**

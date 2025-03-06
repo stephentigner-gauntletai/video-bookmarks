@@ -500,6 +500,35 @@ export class VideoControls {
         videoId: this.videoId
       }) as GetVideoStateResponse;
 
+      // If we have an existing bookmark or active video, start tracking
+      if (response.bookmark || response.activeVideo) {
+        // Get the existing timestamps
+        const lastTimestamp = response.activeVideo?.lastTimestamp ?? response.bookmark?.lastTimestamp ?? 0;
+        const maxTimestamp = response.activeVideo?.maxTimestamp ?? response.bookmark?.maxTimestamp ?? 0;
+
+        // Start event monitoring with existing timestamps
+        this.eventMonitor = new VideoEventMonitor(this.tabId, {
+          initialLastTimestamp: lastTimestamp,
+          initialMaxTimestamp: maxTimestamp
+        });
+        this.eventMonitor.start();
+        
+        // Send video detected message to ensure background state is updated
+        const videoData = await getVideoData(this.tabId);
+        if (videoData) {
+          chrome.runtime.sendMessage({
+            type: BackgroundMessageType.VIDEO_DETECTED,
+            tabId: this.tabId,
+            videoId: this.videoId,
+            url: window.location.href,
+            title: videoData.title,
+            author: videoData.author,
+            lastTimestamp,  // Include existing timestamps
+            maxTimestamp
+          });
+        }
+      }
+
       this.setActive(!!response.activeVideo || !!response.bookmark);
     } catch (error) {
       logger.error('Failed to check video state', error);

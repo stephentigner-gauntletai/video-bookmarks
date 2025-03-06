@@ -11,6 +11,8 @@ interface EventMonitorConfig {
   updateInterval: number;  // How often to check for updates (ms)
   debounceTime: number;   // How long to wait before sending updates (ms)
   minTimeDelta: number;   // Minimum time change to trigger update (seconds)
+  initialLastTimestamp?: number;  // Initial value for lastTimestamp
+  initialMaxTimestamp?: number;   // Initial value for maxTimestamp
 }
 
 /**
@@ -32,10 +34,19 @@ export class VideoEventMonitor {
   private maxTimestamp: number = 0;
   private tabId: number;
   private lastState: PlayerState = PlayerState.UNSTARTED;
+  private lastUpdateTime: number = 0;
 
   constructor(tabId: number, config: Partial<EventMonitorConfig> = {}) {
     this.tabId = tabId;
     this.config = { ...DEFAULT_CONFIG, ...config };
+    
+    // Initialize timestamps if provided
+    if (this.config.initialLastTimestamp !== undefined) {
+      this.lastTimestamp = this.config.initialLastTimestamp;
+    }
+    if (this.config.initialMaxTimestamp !== undefined) {
+      this.maxTimestamp = this.config.initialMaxTimestamp;
+    }
   }
 
   /**
@@ -98,9 +109,28 @@ export class VideoEventMonitor {
    * Handle video time updates
    */
   private async handleTimeUpdate(currentTime: number): Promise<void> {
+    // Calculate time difference
+    const timeDiff = currentTime - this.lastTimestamp;
+    
+    // Only update if:
+    // 1. Moving forward, or
+    // 2. Small rewind (less than 10 seconds), or
+    // 3. Haven't sent an update in a while
+    const timeSinceLastUpdate = Date.now() - this.lastUpdateTime;
+    const shouldUpdate = 
+      timeDiff > 0 || // Moving forward
+      (timeDiff < 0 && Math.abs(timeDiff) < 10) || // Small rewind
+      timeSinceLastUpdate > 5000; // Force update every 5 seconds
+
+    if (!shouldUpdate) {
+      return;
+    }
+
     // Update timestamps
     this.lastTimestamp = currentTime;
-    this.maxTimestamp = Math.max(this.maxTimestamp, currentTime);
+    if (currentTime > this.maxTimestamp) {
+      this.maxTimestamp = currentTime;
+    }
 
     // Get video data for the update
     const videoData = await getVideoData(this.tabId);
@@ -109,9 +139,14 @@ export class VideoEventMonitor {
       return;
     }
 
+    // Record update time
+    this.lastUpdateTime = Date.now();
+
     // Send updates to background script
     this.sendTimestampUpdate(videoData.id, currentTime, false);  // Current position
-    this.sendTimestampUpdate(videoData.id, this.maxTimestamp, true);  // Max position
+    if (currentTime >= this.maxTimestamp) {
+      this.sendTimestampUpdate(videoData.id, this.maxTimestamp, true);  // Max position
+    }
   }
 
   /**

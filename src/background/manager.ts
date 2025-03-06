@@ -210,8 +210,8 @@ export class BackgroundManager {
       url: message.url,
       title: message.title,
       author: message.author,
-      lastTimestamp: 0,
-      maxTimestamp: 0,
+      lastTimestamp: message.lastTimestamp ?? 0,
+      maxTimestamp: message.maxTimestamp ?? 0,
       lastUpdate: Date.now()
     };
 
@@ -241,11 +241,22 @@ export class BackgroundManager {
       return;
     }
 
-    // Update timestamps
-    activeVideo.lastTimestamp = message.timestamp;
+    // Only update lastTimestamp if it's a valid forward progression or small rewind
+    const timeDiff = message.timestamp - activeVideo.lastTimestamp;
+    const isValidUpdate = 
+      timeDiff > 0 || // Moving forward
+      (timeDiff < 0 && Math.abs(timeDiff) < 10) || // Small rewind (less than 10 seconds)
+      message.isMaxTimestamp; // Explicit max timestamp update
+
+    if (isValidUpdate) {
+      activeVideo.lastTimestamp = message.timestamp;
+    }
+
+    // Only update maxTimestamp if we've watched further
     if (message.isMaxTimestamp || message.timestamp > activeVideo.maxTimestamp) {
       activeVideo.maxTimestamp = message.timestamp;
     }
+
     activeVideo.lastUpdate = Date.now();
 
     // Save to storage
