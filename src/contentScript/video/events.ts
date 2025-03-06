@@ -3,6 +3,7 @@ import { debounce } from '../utils';
 import { PlayerState } from './types';
 import { BackgroundMessageType } from '../../background/types';
 import { getCurrentTime, getPlayerState, getVideoData } from './playerProxy';
+import { showError, showSuccess, showWarning } from '../ui/notifications';
 
 /**
  * Configuration for video event monitoring
@@ -35,6 +36,8 @@ export class VideoEventMonitor {
   private tabId: number;
   private lastState: PlayerState = PlayerState.UNSTARTED;
   private lastUpdateTime: number = 0;
+  private lastErrorTime: number = 0;
+  private readonly ERROR_NOTIFICATION_COOLDOWN = 5000; // 5 seconds between error notifications
 
   constructor(tabId: number, config: Partial<EventMonitorConfig> = {}) {
     this.tabId = tabId;
@@ -54,6 +57,7 @@ export class VideoEventMonitor {
    */
   public start(): void {
     logger.debug('Starting video event monitoring');
+    showSuccess('Video tracking started');
     this.startTimeTracking();
   }
 
@@ -62,6 +66,7 @@ export class VideoEventMonitor {
    */
   public stop(): void {
     logger.debug('Stopping video event monitoring');
+    showWarning('Video tracking stopped');
     this.clearTimeTracking();
   }
 
@@ -90,6 +95,11 @@ export class VideoEventMonitor {
           debouncedStateChange(currentState);
         }
       } catch (error) {
+        const now = Date.now();
+        if (now - this.lastErrorTime >= this.ERROR_NOTIFICATION_COOLDOWN) {
+          showError('Failed to update video position', () => this.startTimeTracking());
+          this.lastErrorTime = now;
+        }
         logger.error('Error during time tracking:', error);
       }
     }, this.config.updateInterval) as unknown as number;
@@ -109,26 +119,35 @@ export class VideoEventMonitor {
    * Handle video time updates
    */
   private async handleTimeUpdate(currentTime: number): Promise<void> {
-    // Get video data for the update
-    const videoData = await getVideoData(this.tabId);
-    if (!videoData) {
-      logger.error('Failed to get video data for timestamp update');
-      return;
-    }
+    try {
+      // Get video data for the update
+      const videoData = await getVideoData(this.tabId);
+      if (!videoData) {
+        showError('Failed to get video data for timestamp update');
+        return;
+      }
 
-    // Update timestamps
-    this.lastTimestamp = currentTime;
-    if (currentTime > this.maxTimestamp) {
-      this.maxTimestamp = currentTime;
-    }
+      // Update timestamps
+      this.lastTimestamp = currentTime;
+      if (currentTime > this.maxTimestamp) {
+        this.maxTimestamp = currentTime;
+      }
 
-    // Record update time
-    this.lastUpdateTime = Date.now();
+      // Record update time
+      this.lastUpdateTime = Date.now();
 
-    // Send updates to background script
-    this.sendTimestampUpdate(videoData.id, currentTime, false);  // Current position
-    if (currentTime >= this.maxTimestamp) {
-      this.sendTimestampUpdate(videoData.id, this.maxTimestamp, true);  // Max position
+      // Send updates to background script
+      this.sendTimestampUpdate(videoData.id, currentTime, false);  // Current position
+      if (currentTime >= this.maxTimestamp) {
+        this.sendTimestampUpdate(videoData.id, this.maxTimestamp, true);  // Max position
+      }
+    } catch (error) {
+      const now = Date.now();
+      if (now - this.lastErrorTime >= this.ERROR_NOTIFICATION_COOLDOWN) {
+        showError('Failed to update timestamp', () => this.handleTimeUpdate(currentTime));
+        this.lastErrorTime = now;
+      }
+      logger.error('Error handling time update:', error);
     }
   }
 
@@ -138,24 +157,34 @@ export class VideoEventMonitor {
   private async handleStateChange(state: PlayerState): Promise<void> {
     logger.debug('Player state changed', { state: PlayerState[state] });
 
-    const videoData = await getVideoData(this.tabId);
-    if (!videoData) {
-      logger.error('Failed to get video data for state change');
-      return;
-    }
+    try {
+      const videoData = await getVideoData(this.tabId);
+      if (!videoData) {
+        showError('Failed to get video data for state change');
+        return;
+      }
 
-    switch (state) {
-      case PlayerState.ENDED:
-        // Video ended, update max timestamp to duration
-        this.maxTimestamp = videoData.duration;
-        this.sendTimestampUpdate(videoData.id, videoData.duration, true);
-        break;
+      switch (state) {
+        case PlayerState.ENDED:
+          // Video ended, update max timestamp to duration
+          this.maxTimestamp = videoData.duration;
+          this.sendTimestampUpdate(videoData.id, videoData.duration, true);
+          showSuccess('Video completed');
+          break;
 
-      case PlayerState.PAUSED:
-        // Video paused, update timestamps immediately
-        const currentTime = await getCurrentTime(this.tabId);
-        await this.handleTimeUpdate(currentTime);
-        break;
+        case PlayerState.PAUSED:
+          // Video paused, update timestamps immediately
+          const currentTime = await getCurrentTime(this.tabId);
+          await this.handleTimeUpdate(currentTime);
+          break;
+      }
+    } catch (error) {
+      const now = Date.now();
+      if (now - this.lastErrorTime >= this.ERROR_NOTIFICATION_COOLDOWN) {
+        showError('Failed to handle player state change', () => this.handleStateChange(state));
+        this.lastErrorTime = now;
+      }
+      logger.error('Error handling state change:', error);
     }
   }
 

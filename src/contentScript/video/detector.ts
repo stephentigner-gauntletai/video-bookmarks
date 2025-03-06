@@ -1,6 +1,7 @@
 import { logger } from '../logger';
 import { VideoControls } from '../ui/controls';
 import { isPlayerReady } from './playerProxy';
+import { BackgroundMessageType } from '../../background/types';
 
 /**
  * Class responsible for detecting YouTube video pages and initializing controls
@@ -30,7 +31,9 @@ export class VideoDetector {
   private async initializeTabId(): Promise<void> {
     try {
       logger.debug('Initializing tab ID');
-      const response = await chrome.runtime.sendMessage({ type: 'GET_TAB_ID' });
+      const response = await chrome.runtime.sendMessage({ 
+        type: BackgroundMessageType.GET_TAB_ID 
+      });
       
       if (!response || typeof response.tabId !== 'number') {
         throw new Error('Invalid response format for GET_TAB_ID');
@@ -46,7 +49,7 @@ export class VideoDetector {
     } catch (error) {
       logger.error('Failed to initialize tab ID:', error);
       this.tabId = -1;
-      throw error;
+      // Don't throw, just continue with fallback tab ID
     }
   }
 

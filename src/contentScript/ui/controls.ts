@@ -62,8 +62,15 @@ export class VideoControls {
     if (!VideoControls.instance) {
       // If tabId is not provided, get it from chrome.tabs API
       const finalTabId = tabId ?? await new Promise<number>((resolve) => {
-        chrome.runtime.sendMessage({ type: 'GET_TAB_ID' }, (response) => {
-          resolve(response?.tabId ?? -1);
+        chrome.runtime.sendMessage({ 
+          type: BackgroundMessageType.GET_TAB_ID 
+        }, (response) => {
+          if (!response || typeof response.tabId !== 'number') {
+            logger.error('Invalid response format for GET_TAB_ID');
+            resolve(-1);
+            return;
+          }
+          resolve(response.tabId);
         });
       });
 

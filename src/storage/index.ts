@@ -48,9 +48,11 @@ class StorageManager {
       await withRetry('initialize storage', async () => {
         const storage = await this.getStorage();
         const updates: Partial<StorageSchema> = {};
+        let needsUpdate = false;
 
         if (!storage[StorageKeys.BOOKMARKS]) {
           updates[StorageKeys.BOOKMARKS] = {};
+          needsUpdate = true;
         }
 
         if (!storage[StorageKeys.SETTINGS]) {
@@ -58,9 +60,10 @@ class StorageManager {
             autoTrack: true,
             cleanupDays: 30
           };
+          needsUpdate = true;
         }
 
-        if (Object.keys(updates).length > 0) {
+        if (needsUpdate) {
           await chrome.storage.local.set(updates);
         }
 
@@ -68,18 +71,33 @@ class StorageManager {
         await this.checkBackup();
       }, STORAGE_RETRY_CONFIG);
     } catch (error) {
+      console.error('[Video Bookmarks] Storage initialization failed:', error);
+      
       // If initialization fails, try to restore from backup
       try {
         const restored = await this.recovery.restoreFromBackup();
         if (!restored) {
-          throw new Error('No backup available');
+          console.error('[Video Bookmarks] No backup available for recovery');
+          // Initialize with empty state rather than throwing
+          await chrome.storage.local.set({
+            [StorageKeys.BOOKMARKS]: {},
+            [StorageKeys.SETTINGS]: {
+              autoTrack: true,
+              cleanupDays: 30
+            }
+          });
+          return;
         }
       } catch (backupError) {
-        throw new StorageError(
-          StorageErrorType.OPERATION_FAILED,
-          'Failed to initialize storage and restore from backup',
-          error
-        );
+        console.error('[Video Bookmarks] Backup restoration failed:', backupError);
+        // Initialize with empty state as last resort
+        await chrome.storage.local.set({
+          [StorageKeys.BOOKMARKS]: {},
+          [StorageKeys.SETTINGS]: {
+            autoTrack: true,
+            cleanupDays: 30
+          }
+        });
       }
     }
   }

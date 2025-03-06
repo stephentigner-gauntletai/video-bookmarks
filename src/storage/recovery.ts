@@ -1,5 +1,6 @@
-import { VideoBookmark, StorageKeys, StorageSchema, StorageError, StorageErrorType } from './types';
+import { VideoBookmark, StorageKeys, StorageSchema, StorageError, StorageErrorType, BackupData } from './types';
 import { withRetry } from '../utils/retry';
+import { showError, showSuccess, showWarning, showInfo } from '../contentScript/ui/notifications';
 
 /**
  * Validates a video bookmark object
@@ -57,6 +58,8 @@ export class StorageRecovery {
    */
   public async validateAndRepair(): Promise<void> {
     try {
+      showInfo('Checking storage integrity...');
+      
       // Get all storage data
       const storage = await this.getStorage();
 
@@ -68,7 +71,10 @@ export class StorageRecovery {
 
       // Save repaired data
       await this.saveRepairedData(repairedBookmarks, repairedSettings);
+
+      showSuccess('Storage validation complete');
     } catch (error) {
+      showError('Failed to validate storage data', () => this.validateAndRepair());
       throw new StorageError(
         StorageErrorType.OPERATION_FAILED,
         'Failed to validate and repair storage',
@@ -90,7 +96,7 @@ export class StorageRecovery {
    * Validate and repair bookmarks
    */
   private async validateAndRepairBookmarks(
-    bookmarks: Record<string, VideoBookmark> = {}
+    bookmarks: Record<string, VideoBookmark | any> = {}
   ): Promise<Record<string, VideoBookmark>> {
     const repairedBookmarks: Record<string, VideoBookmark> = {};
     const errors: string[] = [];
@@ -104,10 +110,15 @@ export class StorageRecovery {
           const repaired = await this.repairBookmark(id, bookmark);
           if (repaired) {
             repairedBookmarks[id] = repaired;
+            showWarning(`Repaired corrupted bookmark: ${repaired.title}`);
+          } else {
+            showError(`Unable to repair bookmark: ${bookmark?.title || id}`);
           }
         }
       } catch (error) {
-        errors.push(`Failed to repair bookmark ${id}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        const message = `Failed to repair bookmark ${id}: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        errors.push(message);
+        showError(message);
       }
     }
 
@@ -203,19 +214,33 @@ export class StorageRecovery {
    */
   public async createBackup(): Promise<void> {
     try {
+      showInfo('Creating storage backup...');
+      
       const storage = await this.getStorage();
-      const backup = {
-        data: storage,
+      // Exclude the backup key to prevent nesting
+      const { [StorageKeys.BACKUP]: _, ...dataToBackup } = storage;
+      
+      const backup: BackupData = {
+        data: {
+          bookmarks: dataToBackup[StorageKeys.BOOKMARKS] || {},
+          settings: dataToBackup[StorageKeys.SETTINGS] || {
+            autoTrack: true,
+            cleanupDays: 30
+          }
+        },
         timestamp: Date.now(),
         version: chrome.runtime.getManifest().version
       };
 
       await withRetry('create backup', async () => {
         await chrome.storage.local.set({
-          ['backup']: backup
+          [StorageKeys.BACKUP]: backup
         });
       });
+
+      showSuccess('Storage backup created');
     } catch (error) {
+      showError('Failed to create backup', () => this.createBackup());
       throw new StorageError(
         StorageErrorType.OPERATION_FAILED,
         'Failed to create backup',
@@ -225,28 +250,96 @@ export class StorageRecovery {
   }
 
   /**
+   * Clean up corrupted backup data
+   */
+  private async cleanupCorruptedBackup(): Promise<void> {
+    try {
+      const storage = await this.getStorage();
+      if (!storage[StorageKeys.BACKUP]) return;
+
+      // Function to extract valid data from nested backup
+      const extractValidData = (backup: any): BackupData['data'] | null => {
+        if (!backup || typeof backup !== 'object') return null;
+        
+        // If we find bookmarks and settings at this level, this is valid data
+        if (backup.bookmarks && backup.settings) {
+          return {
+            bookmarks: backup.bookmarks,
+            settings: backup.settings
+          };
+        }
+
+        // Check data property for valid data
+        if (backup.data) {
+          const dataResult = extractValidData(backup.data);
+          if (dataResult) return dataResult;
+        }
+
+        // Check backup property for valid data
+        if (backup.backup) {
+          const backupResult = extractValidData(backup.backup);
+          if (backupResult) return backupResult;
+        }
+
+        return null;
+      };
+
+      // Try to extract valid data from the corrupted backup
+      const validData = extractValidData(storage[StorageKeys.BACKUP]);
+
+      if (validData) {
+        // Save the valid data as a new clean backup
+        const backup: BackupData = {
+          data: validData,
+          timestamp: Date.now(),
+          version: chrome.runtime.getManifest().version
+        };
+        await chrome.storage.local.set({
+          [StorageKeys.BACKUP]: backup
+        });
+      } else {
+        // If no valid data found, remove the corrupted backup
+        await chrome.storage.local.remove(StorageKeys.BACKUP);
+      }
+    } catch (error) {
+      console.error('Failed to cleanup corrupted backup:', error);
+    }
+  }
+
+  /**
    * Restore from backup if available
    */
   public async restoreFromBackup(): Promise<boolean> {
     try {
-      const backup = await withRetry('get backup', async () => {
-        const result = await chrome.storage.local.get('backup');
-        return result.backup;
+      showWarning('Attempting to restore from backup...');
+      
+      // First cleanup any corrupted backup
+      await this.cleanupCorruptedBackup();
+
+      const result = await withRetry('get backup', async () => {
+        return await chrome.storage.local.get(StorageKeys.BACKUP);
       });
 
-      if (!backup || !backup.data) {
+      const backup = result[StorageKeys.BACKUP] as BackupData | undefined;
+      if (!backup?.data) {
+        showError('No backup available for restoration');
         return false;
       }
 
       // Validate backup data before restoring
-      const repairedBookmarks = await this.validateAndRepairBookmarks(backup.data[StorageKeys.BOOKMARKS]);
-      const repairedSettings = await this.validateAndRepairSettings(backup.data[StorageKeys.SETTINGS]);
+      const repairedBookmarks = await this.validateAndRepairBookmarks(backup.data.bookmarks);
+      const repairedSettings = await this.validateAndRepairSettings(backup.data.settings);
 
       // Save validated backup data
-      await this.saveRepairedData(repairedBookmarks, repairedSettings);
+      await chrome.storage.local.set({
+        [StorageKeys.BOOKMARKS]: repairedBookmarks,
+        [StorageKeys.SETTINGS]: repairedSettings
+      });
 
+      showSuccess('Storage restored from backup');
       return true;
     } catch (error) {
+      showError('Failed to restore from backup');
       throw new StorageError(
         StorageErrorType.OPERATION_FAILED,
         'Failed to restore from backup',

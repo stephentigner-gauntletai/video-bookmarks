@@ -17,7 +17,23 @@ export interface VideoBookmark {
  */
 export enum StorageKeys {
   BOOKMARKS = 'bookmarks',
-  SETTINGS = 'settings'
+  SETTINGS = 'settings',
+  BACKUP = 'backup'
+}
+
+/**
+ * Backup data structure
+ */
+export interface BackupData {
+  data: {
+    bookmarks: Record<string, VideoBookmark>;
+    settings: {
+      autoTrack: boolean;
+      cleanupDays: number;
+    };
+  };
+  timestamp: number;
+  version: string;
 }
 
 /**
@@ -31,6 +47,7 @@ export interface StorageSchema {
     autoTrack: boolean;  // Whether to automatically track video progress
     cleanupDays: number; // Number of days after which to clean up old bookmarks
   };
+  [StorageKeys.BACKUP]?: BackupData;
 }
 
 /**
