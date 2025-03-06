@@ -82,9 +82,19 @@ export const BookmarkList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletingBookmarks, setDeletingBookmarks] = useState<Record<string, number>>({});
+  
+  // Add refs to track timers
+  const timerRefs = React.useRef<Record<string, { interval: number; timeout: number }>>({});
 
   useEffect(() => {
     loadBookmarks();
+    // Cleanup timers on unmount
+    return () => {
+      Object.values(timerRefs.current).forEach(({ interval, timeout }) => {
+        clearInterval(interval);
+        clearTimeout(timeout);
+      });
+    };
   }, []);
 
   const loadBookmarks = async () => {
@@ -103,6 +113,12 @@ export const BookmarkList: React.FC = () => {
 
   const handleInitiateDelete = async (id: string) => {
     try {
+      // Clear any existing timers for this ID
+      if (timerRefs.current[id]) {
+        clearInterval(timerRefs.current[id].interval);
+        clearTimeout(timerRefs.current[id].timeout);
+      }
+
       // Send initiate delete message
       chrome.runtime.sendMessage({
         type: BackgroundMessageType.INITIATE_DELETE,
@@ -118,7 +134,6 @@ export const BookmarkList: React.FC = () => {
         setDeletingBookmarks(prev => {
           const timeLeft = prev[id] - 1;
           if (timeLeft <= 0) {
-            clearInterval(countdownInterval);
             handleConfirmDelete(id);
             const { [id]: _, ...rest } = prev;
             return rest;
@@ -128,9 +143,20 @@ export const BookmarkList: React.FC = () => {
       }, 1000);
 
       // Set final deletion timer
-      setTimeout(() => {
+      const deletionTimeout = setTimeout(() => {
         clearInterval(countdownInterval);
+        // Remove from deleting state if it's still there
+        setDeletingBookmarks(prev => {
+          const { [id]: _, ...rest } = prev;
+          return rest;
+        });
       }, 5000);
+
+      // Store timer references
+      timerRefs.current[id] = {
+        interval: countdownInterval as unknown as number,
+        timeout: deletionTimeout as unknown as number
+      };
     } catch (error) {
       console.error('Error initiating delete:', error);
       setError('Failed to delete bookmark');
@@ -140,6 +166,13 @@ export const BookmarkList: React.FC = () => {
 
   const handleUndoDelete = async (id: string) => {
     try {
+      // Clear timers
+      if (timerRefs.current[id]) {
+        clearInterval(timerRefs.current[id].interval);
+        clearTimeout(timerRefs.current[id].timeout);
+        delete timerRefs.current[id];
+      }
+
       // Send undo delete message
       chrome.runtime.sendMessage({
         type: BackgroundMessageType.UNDO_DELETE,
