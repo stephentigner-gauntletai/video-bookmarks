@@ -9,7 +9,10 @@ import {
   VideoDetectedMessage,
   VideoClosedMessage,
   UpdateTimestampMessage,
-  GetVideoStateMessage
+  GetVideoStateMessage,
+  InitiateDeleteMessage,
+  UndoDeleteMessage,
+  ConfirmDeleteMessage
 } from './types';
 import { handlePlayerProxyMessage } from './playerProxy';
 
@@ -62,65 +65,81 @@ export class BackgroundManager {
     sender: chrome.runtime.MessageSender,
     sendResponse: (response?: any) => void
   ): boolean {
-    // Special case for GET_TAB_ID message
-    if (message.type === BackgroundMessageType.GET_TAB_ID) {
-      console.debug('[Video Bookmarks] Handling GET_TAB_ID message', {
-        sender,
-        tabId: sender.tab?.id
-      });
-      const response = { tabId: sender.tab?.id ?? -1 };
-      console.debug('[Video Bookmarks] Sending GET_TAB_ID response:', response);
-      sendResponse(response);
-      return true;
-    }
+    try {
+      // Special case for GET_TAB_ID message
+      if (message.type === BackgroundMessageType.GET_TAB_ID) {
+        console.debug('[Video Bookmarks] Handling GET_TAB_ID message', {
+          sender,
+          tabId: sender.tab?.id
+        });
+        const response = { tabId: sender.tab?.id ?? -1 };
+        console.debug('[Video Bookmarks] Sending GET_TAB_ID response:', response);
+        sendResponse(response);
+        return true;
+      }
 
-    // Handle player proxy messages
-    if ([
-      BackgroundMessageType.CHECK_PLAYER_READY,
-      BackgroundMessageType.GET_VIDEO_DATA,
-      BackgroundMessageType.GET_PLAYER_STATE,
-      BackgroundMessageType.GET_CURRENT_TIME
-    ].includes(message.type)) {
-      handlePlayerProxyMessage(message, sendResponse);
-      return true;
-    }
+      // Handle player proxy messages
+      if ([
+        BackgroundMessageType.CHECK_PLAYER_READY,
+        BackgroundMessageType.GET_VIDEO_DATA,
+        BackgroundMessageType.GET_PLAYER_STATE,
+        BackgroundMessageType.GET_CURRENT_TIME
+      ].includes(message.type)) {
+        handlePlayerProxyMessage(message, sendResponse);
+        return true;
+      }
 
-    // Handle CSS injection
-    if (message.type === BackgroundMessageType.INJECT_STYLES) {
-      this.injectStyles(message.tabId);
-      sendResponse();
-      return true;
-    }
+      // Handle CSS injection
+      if (message.type === BackgroundMessageType.INJECT_STYLES) {
+        this.injectStyles(message.tabId);
+        sendResponse();
+        return true;
+      }
 
-    // For all other messages, ensure we have a valid tabId
-    const tabId = sender.tab?.id;
-    if (typeof tabId !== 'number') {
-      console.error('Invalid tabId in message:', message);
-      return false;
-    }
+      // For all other messages, ensure we have a valid tabId
+      const tabId = sender.tab?.id;
+      if (typeof tabId !== 'number') {
+        console.error('Invalid tabId in message:', message);
+        return false;
+      }
 
-    // Create a new message object with the validated tabId
-    const messageWithTabId = {
-      ...message,
-      tabId
-    };
+      // Create a new message object with the validated tabId
+      const messageWithTabId = {
+        ...message,
+        tabId
+      };
 
-    switch (message.type) {
-      case BackgroundMessageType.VIDEO_DETECTED:
-        this.handleVideoDetected(messageWithTabId as VideoDetectedMessage);
-        break;
+      switch (message.type) {
+        case BackgroundMessageType.VIDEO_DETECTED:
+          this.handleVideoDetected(messageWithTabId as VideoDetectedMessage);
+          break;
 
-      case BackgroundMessageType.VIDEO_CLOSED:
-        this.handleVideoClosed(messageWithTabId as VideoClosedMessage);
-        break;
+        case BackgroundMessageType.VIDEO_CLOSED:
+          this.handleVideoClosed(messageWithTabId as VideoClosedMessage);
+          break;
 
-      case BackgroundMessageType.UPDATE_TIMESTAMP:
-        this.handleUpdateTimestamp(messageWithTabId as UpdateTimestampMessage).then(sendResponse);
-        return true; // Will respond asynchronously
+        case BackgroundMessageType.UPDATE_TIMESTAMP:
+          this.handleUpdateTimestamp(messageWithTabId as UpdateTimestampMessage).then(sendResponse);
+          return true; // Will respond asynchronously
 
-      case BackgroundMessageType.GET_VIDEO_STATE:
-        this.handleGetVideoState(messageWithTabId as GetVideoStateMessage).then(sendResponse);
-        return true; // Will respond asynchronously
+        case BackgroundMessageType.GET_VIDEO_STATE:
+          this.handleGetVideoState(messageWithTabId as GetVideoStateMessage).then(sendResponse);
+          return true; // Will respond asynchronously
+
+        case BackgroundMessageType.INITIATE_DELETE:
+          this.handleInitiateDelete(message as InitiateDeleteMessage);
+          break;
+
+        case BackgroundMessageType.UNDO_DELETE:
+          this.handleUndoDelete(message as UndoDeleteMessage);
+          break;
+
+        case BackgroundMessageType.CONFIRM_DELETE:
+          this.handleConfirmDelete(message as ConfirmDeleteMessage);
+          break;
+      }
+    } catch (error) {
+      console.error('Error handling message:', error);
     }
 
     return false;
@@ -398,6 +417,50 @@ export class BackgroundManager {
       });
     } catch (error) {
       console.error('Failed to inject styles:', error);
+    }
+  }
+
+  /**
+   * Handle initiate delete message
+   */
+  private handleInitiateDelete(message: InitiateDeleteMessage): void {
+    // If this is from a tab, store the active video for potential undo
+    const activeVideo = this.state.activeVideos.get(message.tabId);
+    if (activeVideo && activeVideo.id === message.videoId) {
+      // Keep the active video in the map but mark it as pending deletion
+      activeVideo.pendingDeletion = true;
+    }
+  }
+
+  /**
+   * Handle undo delete message
+   */
+  private handleUndoDelete(message: UndoDeleteMessage): void {
+    // If this is from a tab, restore the active video
+    const activeVideo = this.state.activeVideos.get(message.tabId);
+    if (activeVideo && activeVideo.id === message.videoId) {
+      // Remove pending deletion flag
+      delete activeVideo.pendingDeletion;
+    }
+  }
+
+  /**
+   * Handle confirm delete message
+   */
+  private async handleConfirmDelete(message: ConfirmDeleteMessage): Promise<void> {
+    // If this is from a tab, remove the active video
+    const activeVideo = this.state.activeVideos.get(message.tabId);
+    if (activeVideo && activeVideo.id === message.videoId) {
+      // Save final state before removal
+      await this.saveVideoState(activeVideo);
+      this.state.activeVideos.delete(message.tabId);
+    }
+
+    // Delete the bookmark
+    try {
+      await storageManager.deleteBookmark(message.videoId);
+    } catch (error) {
+      console.error('Failed to delete bookmark:', error);
     }
   }
 } 

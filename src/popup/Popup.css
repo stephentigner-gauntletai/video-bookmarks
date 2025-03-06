@@ -197,6 +197,32 @@ body {
   font-style: italic;
 }
 
+/* Deleting state */
+.bookmark-item.deleting {
+  border-color: #d93025;
+  opacity: 0.8;
+}
+
+.bookmark-undo {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #d93025;
+}
+
+.bookmark-undo button {
+  background: none;
+  border: none;
+  color: #1a73e8;
+  cursor: pointer;
+  padding: 0 4px;
+  font-weight: 500;
+}
+
+.bookmark-undo span {
+  color: #666;
+  margin-left: 4px;
+}
+
 /* Dark mode styles */
 @media (prefers-color-scheme: dark) {
   body {
@@ -257,5 +283,21 @@ body {
 
   .empty-state {
     color: #9aa0a6;
+  }
+
+  .bookmark-undo {
+    color: #f28b82;
+  }
+
+  .bookmark-undo button {
+    color: #8ab4f8;
+  }
+
+  .bookmark-undo span {
+    color: #9aa0a6;
+  }
+
+  .bookmark-item.deleting {
+    border-color: #f28b82;
   }
 }

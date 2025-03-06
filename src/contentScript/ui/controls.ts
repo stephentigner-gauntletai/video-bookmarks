@@ -14,6 +14,8 @@ interface ControlsConfig {
   activeClass: string;    // Class name for active state
   savingClass: string;    // Class name for saving state
   errorClass: string;     // Class name for error state
+  deletingClass: string;  // Class name for deleting state
+  undoTimeout: number;    // Time in ms before deletion is confirmed
 }
 
 /**
@@ -24,7 +26,9 @@ const DEFAULT_CONFIG: ControlsConfig = {
   containerClass: 'vb-controls',
   activeClass: 'vb-active',
   savingClass: 'vb-saving',
-  errorClass: 'vb-error'
+  errorClass: 'vb-error',
+  deletingClass: 'vb-deleting',
+  undoTimeout: 5000  // 5 seconds for undo
 };
 
 /**
@@ -42,6 +46,8 @@ export class VideoControls {
   private isActive: boolean = false;
   private isSaving: boolean = false;
   private eventMonitor: VideoEventMonitor | null = null;
+  private undoTimer: number | null = null;
+  private undoElement: HTMLElement | null = null;
 
   private constructor(tabId: number, config: Partial<ControlsConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -129,6 +135,7 @@ export class VideoControls {
     this.videoId = null;
     this.isActive = false;
     this.isSaving = false;
+    this.clearUndoTimer();
   }
 
   /**
@@ -170,9 +177,45 @@ export class VideoControls {
       display: none;
     `;
 
+    // Create undo element
+    this.undoElement = document.createElement('div');
+    this.undoElement.className = 'vb-undo';
+    this.undoElement.style.cssText = `
+      position: absolute;
+      left: 100%;
+      top: 50%;
+      transform: translateY(-50%);
+      background: rgba(0, 0, 0, 0.8);
+      color: white;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      display: none;
+      white-space: nowrap;
+      margin-left: 8px;
+      z-index: 1000;
+    `;
+
+    const undoButton = document.createElement('button');
+    undoButton.textContent = 'UNDO';
+    undoButton.style.cssText = `
+      background: none;
+      border: none;
+      color: #3ea6ff;
+      cursor: pointer;
+      padding: 0 4px;
+      font-weight: 500;
+    `;
+    undoButton.addEventListener('click', this.handleUndo.bind(this));
+
+    this.undoElement.appendChild(document.createTextNode('Bookmark will be removed. '));
+    this.undoElement.appendChild(undoButton);
+    this.undoElement.appendChild(document.createElement('span')); // For countdown
+
     // Add elements to container
     this.container.appendChild(this.button);
     this.container.appendChild(this.timestampDisplay);
+    this.container.appendChild(this.undoElement);
 
     // Try to inject the controls into the YouTube player
     this.injectControls();
@@ -221,21 +264,16 @@ export class VideoControls {
     if (!this.videoId) return;
 
     try {
-      this.setSaving(true);
-
-      // Toggle bookmark state
       if (this.isActive) {
-        await this.deactivateBookmark();
+        // Instead of immediate deactivation, initiate deletion
+        await this.initiateDelete();
       } else {
         await this.activateBookmark();
       }
-
-      this.setSaving(false);
     } catch (error) {
       logger.error('Failed to handle bookmark click', error);
       this.setError(true);
       setTimeout(() => this.setError(false), 2000);
-      this.setSaving(false);
     }
   }
 
@@ -268,24 +306,125 @@ export class VideoControls {
   }
 
   /**
-   * Deactivate bookmark tracking
+   * Initiate bookmark deletion
    */
-  private async deactivateBookmark(): Promise<void> {
+  private async initiateDelete(): Promise<void> {
     if (!this.videoId) return;
 
-    // Stop event monitoring
+    // Stop event monitoring but keep the state
     if (this.eventMonitor) {
       this.eventMonitor.stop();
-      this.eventMonitor = null;
     }
 
-    // Send video closed message
+    // Send initiate delete message
     chrome.runtime.sendMessage({
-      type: BackgroundMessageType.VIDEO_CLOSED,
+      type: BackgroundMessageType.INITIATE_DELETE,
       tabId: this.tabId,
       videoId: this.videoId
     });
 
+    // Show undo UI
+    this.showUndoUI();
+  }
+
+  /**
+   * Handle undo action
+   */
+  private async handleUndo(): Promise<void> {
+    if (!this.videoId) return;
+
+    // Clear deletion timer
+    this.clearUndoTimer();
+
+    // Hide undo UI
+    this.hideUndoUI();
+
+    // Send undo message
+    chrome.runtime.sendMessage({
+      type: BackgroundMessageType.UNDO_DELETE,
+      tabId: this.tabId,
+      videoId: this.videoId
+    });
+
+    // Restart event monitoring
+    if (this.eventMonitor) {
+      this.eventMonitor.start();
+    }
+
+    // Keep active state
+    this.setActive(true);
+  }
+
+  /**
+   * Show undo UI with countdown
+   */
+  private showUndoUI(): void {
+    if (!this.undoElement) return;
+
+    // Show undo element
+    this.undoElement.style.display = 'block';
+    this.container?.classList.add(this.config.deletingClass);
+
+    // Start countdown
+    let timeLeft = Math.floor(this.config.undoTimeout / 1000);
+    const countdownSpan = this.undoElement.querySelector('span');
+    if (countdownSpan) {
+      countdownSpan.textContent = `(${timeLeft}s)`;
+    }
+
+    // Update countdown every second
+    const countdownInterval = setInterval(() => {
+      timeLeft--;
+      if (countdownSpan) {
+        countdownSpan.textContent = `(${timeLeft}s)`;
+      }
+    }, 1000);
+
+    // Set timer for final deletion
+    this.undoTimer = window.setTimeout(() => {
+      clearInterval(countdownInterval);
+      this.confirmDelete();
+    }, this.config.undoTimeout) as unknown as number;
+  }
+
+  /**
+   * Hide undo UI
+   */
+  private hideUndoUI(): void {
+    if (this.undoElement) {
+      this.undoElement.style.display = 'none';
+    }
+    this.container?.classList.remove(this.config.deletingClass);
+  }
+
+  /**
+   * Clear undo timer
+   */
+  private clearUndoTimer(): void {
+    if (this.undoTimer !== null) {
+      clearTimeout(this.undoTimer);
+      this.undoTimer = null;
+    }
+  }
+
+  /**
+   * Confirm deletion after undo period
+   */
+  private async confirmDelete(): Promise<void> {
+    if (!this.videoId) return;
+
+    // Hide undo UI
+    this.hideUndoUI();
+
+    // Send confirm delete message
+    chrome.runtime.sendMessage({
+      type: BackgroundMessageType.CONFIRM_DELETE,
+      tabId: this.tabId,
+      videoId: this.videoId
+    });
+
+    // Complete deactivation
+    this.eventMonitor = null;
     this.setActive(false);
   }
 

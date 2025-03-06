@@ -11,6 +11,7 @@ export interface ActiveVideo {
   lastTimestamp: number;
   maxTimestamp: number;
   lastUpdate: number;
+  pendingDeletion?: boolean;  // Whether the video is pending deletion
 }
 
 /**
@@ -35,7 +36,10 @@ export enum BackgroundMessageType {
   GET_VIDEO_DATA = 'GET_VIDEO_DATA',
   GET_PLAYER_STATE = 'GET_PLAYER_STATE',
   GET_CURRENT_TIME = 'GET_CURRENT_TIME',
-  INJECT_STYLES = 'INJECT_STYLES'
+  INJECT_STYLES = 'INJECT_STYLES',
+  INITIATE_DELETE = 'INITIATE_DELETE',
+  UNDO_DELETE = 'UNDO_DELETE',
+  CONFIRM_DELETE = 'CONFIRM_DELETE'
 }
 
 /**
@@ -146,6 +150,30 @@ export interface InjectStylesMessage extends TabBackgroundMessage {
 }
 
 /**
+ * Message sent to initiate bookmark deletion
+ */
+export interface InitiateDeleteMessage extends TabBackgroundMessage {
+  type: BackgroundMessageType.INITIATE_DELETE;
+  videoId: string;
+}
+
+/**
+ * Message sent to undo bookmark deletion
+ */
+export interface UndoDeleteMessage extends TabBackgroundMessage {
+  type: BackgroundMessageType.UNDO_DELETE;
+  videoId: string;
+}
+
+/**
+ * Message sent to confirm bookmark deletion
+ */
+export interface ConfirmDeleteMessage extends TabBackgroundMessage {
+  type: BackgroundMessageType.CONFIRM_DELETE;
+  videoId: string;
+}
+
+/**
  * Union type of all possible background messages
  */
 export type BackgroundMessageUnion = 
@@ -159,4 +187,7 @@ export type BackgroundMessageUnion =
   | GetVideoDataMessage
   | GetPlayerStateMessage
   | GetCurrentTimeMessage
-  | InjectStylesMessage; 
+  | InjectStylesMessage
+  | InitiateDeleteMessage
+  | UndoDeleteMessage
+  | ConfirmDeleteMessage; 

@@ -1,13 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import { VideoBookmark } from '../../storage/types';
 import { storageManager } from '../../storage';
+import { BackgroundMessageType } from '../../background/types';
 
 interface BookmarkItemProps {
   bookmark: VideoBookmark;
-  onDelete: (id: string) => void;
+  onInitiateDelete: (id: string) => void;
+  onUndoDelete: (id: string) => void;
+  isDeleting: boolean;
+  timeLeft: number;
 }
 
-const BookmarkItem: React.FC<BookmarkItemProps> = ({ bookmark, onDelete }) => {
+const BookmarkItem: React.FC<BookmarkItemProps> = ({ 
+  bookmark, 
+  onInitiateDelete, 
+  onUndoDelete,
+  isDeleting,
+  timeLeft
+}) => {
   const formatTime = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
     const minutes = Math.floor((seconds % 3600) / 60);
@@ -25,12 +35,17 @@ const BookmarkItem: React.FC<BookmarkItemProps> = ({ bookmark, onDelete }) => {
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onDelete(bookmark.id);
+    onInitiateDelete(bookmark.id);
+  };
+
+  const handleUndo = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onUndoDelete(bookmark.id);
   };
 
   return (
     <div 
-      className="bookmark-item"
+      className={`bookmark-item ${isDeleting ? 'deleting' : ''}`}
       onClick={handleClick}
     >
       <div className="bookmark-content">
@@ -43,6 +58,13 @@ const BookmarkItem: React.FC<BookmarkItemProps> = ({ bookmark, onDelete }) => {
             {new Date(bookmark.updatedAt).toLocaleDateString()}
           </span>
         </div>
+        {isDeleting && (
+          <div className="bookmark-undo">
+            Bookmark will be removed. 
+            <button onClick={handleUndo}>UNDO</button>
+            <span>({timeLeft}s)</span>
+          </div>
+        )}
       </div>
       <button 
         className="bookmark-delete"
@@ -59,6 +81,7 @@ export const BookmarkList: React.FC = () => {
   const [bookmarks, setBookmarks] = useState<VideoBookmark[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deletingBookmarks, setDeletingBookmarks] = useState<Record<string, number>>({});
 
   useEffect(() => {
     loadBookmarks();
@@ -78,13 +101,77 @@ export const BookmarkList: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleInitiateDelete = async (id: string) => {
     try {
-      await storageManager.deleteBookmark(id);
-      setBookmarks(bookmarks.filter(b => b.id !== id));
+      // Send initiate delete message
+      chrome.runtime.sendMessage({
+        type: BackgroundMessageType.INITIATE_DELETE,
+        videoId: id,
+        tabId: -1
+      });
+
+      // Start countdown
+      setDeletingBookmarks(prev => ({ ...prev, [id]: 5 }));
+
+      // Update countdown every second
+      const countdownInterval = setInterval(() => {
+        setDeletingBookmarks(prev => {
+          const timeLeft = prev[id] - 1;
+          if (timeLeft <= 0) {
+            clearInterval(countdownInterval);
+            handleConfirmDelete(id);
+            const { [id]: _, ...rest } = prev;
+            return rest;
+          }
+          return { ...prev, [id]: timeLeft };
+        });
+      }, 1000);
+
+      // Set final deletion timer
+      setTimeout(() => {
+        clearInterval(countdownInterval);
+      }, 5000);
     } catch (error) {
-      console.error('Error deleting bookmark:', error);
-      // Show error in UI
+      console.error('Error initiating delete:', error);
+      setError('Failed to delete bookmark');
+      setTimeout(() => setError(null), 3000);
+    }
+  };
+
+  const handleUndoDelete = async (id: string) => {
+    try {
+      // Send undo delete message
+      chrome.runtime.sendMessage({
+        type: BackgroundMessageType.UNDO_DELETE,
+        videoId: id,
+        tabId: -1
+      });
+
+      // Remove from deleting state
+      setDeletingBookmarks(prev => {
+        const { [id]: _, ...rest } = prev;
+        return rest;
+      });
+    } catch (error) {
+      console.error('Error undoing delete:', error);
+      setError('Failed to undo deletion');
+      setTimeout(() => setError(null), 3000);
+    }
+  };
+
+  const handleConfirmDelete = async (id: string) => {
+    try {
+      // Send confirm delete message
+      chrome.runtime.sendMessage({
+        type: BackgroundMessageType.CONFIRM_DELETE,
+        videoId: id,
+        tabId: -1
+      });
+
+      // Remove from list
+      setBookmarks(prev => prev.filter(b => b.id !== id));
+    } catch (error) {
+      console.error('Error confirming delete:', error);
       setError('Failed to delete bookmark');
       setTimeout(() => setError(null), 3000);
     }
@@ -112,7 +199,10 @@ export const BookmarkList: React.FC = () => {
         <BookmarkItem
           key={bookmark.id}
           bookmark={bookmark}
-          onDelete={handleDelete}
+          onInitiateDelete={handleInitiateDelete}
+          onUndoDelete={handleUndoDelete}
+          isDeleting={bookmark.id in deletingBookmarks}
+          timeLeft={deletingBookmarks[bookmark.id] || 0}
         />
       ))}
     </div>
