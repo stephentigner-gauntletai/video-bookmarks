@@ -48,6 +48,7 @@ export class VideoControls {
   private isSaving: boolean = false;
   private eventMonitor: VideoEventMonitor | null = null;
   private undoTimer: number | null = null;
+  private countdownInterval: number | null = null;  // Add tracking for countdown interval
 
   private constructor(tabId: number, config: Partial<ControlsConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -128,6 +129,7 @@ export class VideoControls {
       this.eventMonitor.stop();
       this.eventMonitor = null;
     }
+    this.clearTimers();  // Clear both timers
     this.container?.remove();
     this.container = null;
     this.bookmarkButton = null;
@@ -136,7 +138,6 @@ export class VideoControls {
     this.videoId = null;
     this.isActive = false;
     this.isSaving = false;
-    this.clearUndoTimer();
   }
 
   /**
@@ -319,11 +320,11 @@ export class VideoControls {
   /**
    * Handle undo action
    */
-  private async handleUndo(): Promise<void> {
+  private handleUndo(): void {
     if (!this.videoId) return;
 
-    // Clear deletion timer
-    this.clearUndoTimer();
+    // Clear both timers
+    this.clearTimers();
 
     // Hide undo UI
     this.hideUndoUI();
@@ -350,6 +351,9 @@ export class VideoControls {
   private showUndoUI(): void {
     if (!this.bookmarkButton || !this.undoButton) return;
 
+    // Clear any existing timers
+    this.clearTimers();
+
     // Hide bookmark button, show undo button
     this.bookmarkButton.style.display = 'none';
     this.undoButton.style.display = 'flex';
@@ -357,18 +361,21 @@ export class VideoControls {
     // Start countdown
     let timeLeft = Math.floor(this.config.undoTimeout / 1000);
     const countdownSpan = this.undoButton.querySelector('span');
+    if (countdownSpan) {
+      countdownSpan.textContent = `UNDO (${timeLeft})`;
+    }
     
     // Update countdown every second
-    const countdownInterval = setInterval(() => {
+    this.countdownInterval = window.setInterval(() => {
       timeLeft--;
       if (countdownSpan) {
         countdownSpan.textContent = `UNDO (${timeLeft})`;
       }
-    }, 1000);
+    }, 1000) as unknown as number;
 
     // Set timer for final deletion
     this.undoTimer = window.setTimeout(() => {
-      clearInterval(countdownInterval);
+      this.clearTimers();
       this.confirmDelete();
     }, this.config.undoTimeout) as unknown as number;
   }
@@ -385,20 +392,27 @@ export class VideoControls {
   }
 
   /**
-   * Clear undo timer
+   * Clear timers
    */
-  private clearUndoTimer(): void {
+  private clearTimers(): void {
     if (this.undoTimer !== null) {
       clearTimeout(this.undoTimer);
       this.undoTimer = null;
+    }
+    if (this.countdownInterval !== null) {
+      clearInterval(this.countdownInterval);
+      this.countdownInterval = null;
     }
   }
 
   /**
    * Confirm deletion after undo period
    */
-  private async confirmDelete(): Promise<void> {
+  private confirmDelete(): void {
     if (!this.videoId) return;
+
+    // Clear both timers
+    this.clearTimers();
 
     // Hide undo UI
     this.hideUndoUI();
