@@ -1,34 +1,23 @@
 import { logger } from '../logger';
-import { debounce } from '../utils';
-import { YouTubePlayer, VideoMetadata, PlayerState, VideoEvents } from './types';
-import { VideoEventMonitor } from './events';
 import { VideoControls } from '../ui/controls';
-import { BackgroundMessageType } from '../../background/types';
+import { isPlayerReady } from './playerProxy';
 
 /**
- * Class responsible for detecting and monitoring the YouTube player
+ * Class responsible for detecting YouTube video pages and initializing controls
  */
 export class VideoDetector {
-  private static instance: VideoDetector;
+  private static instance: VideoDetector | null = null;
   private observer: MutationObserver | null = null;
-  private player: YouTubePlayer | null = null;
-  private events: Partial<VideoEvents> = {};
-  private metadataCheckInterval: number | null = null;
-  private eventMonitor: VideoEventMonitor | null = null;
   private controls: VideoControls | null = null;
-  private tabId: number = -1;  // Initialize with invalid tab ID
+  private tabId: number = -1;
+  private isInitialized: boolean = false;
 
-  private constructor() {
-    // Get current tab ID
-    chrome.tabs.getCurrent((tab) => {
-      this.tabId = tab?.id ?? -1;
-    });
-  }
+  private constructor() {}
 
   /**
    * Get the singleton instance
    */
-  public static getInstance(): VideoDetector {
+  public static async getInstance(): Promise<VideoDetector> {
     if (!VideoDetector.instance) {
       VideoDetector.instance = new VideoDetector();
     }
@@ -36,12 +25,47 @@ export class VideoDetector {
   }
 
   /**
+   * Initialize the tab ID
+   */
+  private async initializeTabId(): Promise<void> {
+    try {
+      logger.debug('Initializing tab ID');
+      const response = await chrome.runtime.sendMessage({ type: 'GET_TAB_ID' });
+      
+      if (!response || typeof response.tabId !== 'number') {
+        throw new Error('Invalid response format for GET_TAB_ID');
+      }
+
+      this.tabId = response.tabId;
+      
+      if (this.tabId === -1) {
+        logger.warn('Using fallback tab ID of -1');
+      } else {
+        logger.debug('Tab ID initialized:', this.tabId);
+      }
+    } catch (error) {
+      logger.error('Failed to initialize tab ID:', error);
+      this.tabId = -1;
+      throw error;
+    }
+  }
+
+  /**
    * Initialize the detector
    */
-  public initialize(events: Partial<VideoEvents>): void {
-    this.events = events;
-    this.startObserving();
-    logger.debug('Video detector initialized');
+  public async initialize(): Promise<void> {
+    if (this.isInitialized) return;
+
+    try {
+      await this.initializeTabId();
+      await this.startObserving();
+      this.isInitialized = true;
+      logger.debug('Video detector initialized');
+    } catch (error) {
+      logger.error('Failed to initialize video detector:', error);
+      this.destroy();
+      throw error;
+    }
   }
 
   /**
@@ -49,36 +73,27 @@ export class VideoDetector {
    */
   public destroy(): void {
     this.stopObserving();
-    this.clearMetadataCheck();
-    if (this.eventMonitor) {
-      this.eventMonitor.stop();
-      this.eventMonitor = null;
-    }
     if (this.controls) {
       this.controls.destroy();
       this.controls = null;
     }
-    this.player = null;
+    this.isInitialized = false;
     logger.debug('Video detector destroyed');
   }
 
   /**
    * Start observing DOM changes to detect the player
    */
-  private startObserving(): void {
+  private async startObserving(): Promise<void> {
     logger.debug('Starting player detection');
 
-    // First try to find existing player
-    this.findPlayer();
+    // Initial check
+    await this.checkForPlayer();
 
     // Setup observer for dynamic changes
-    this.observer = new MutationObserver(
-      debounce(() => {
-        if (!this.player) {
-          this.findPlayer();
-        }
-      }, 500)
-    );
+    this.observer = new MutationObserver(async () => {
+      await this.checkForPlayer();
+    });
 
     this.observer.observe(document.body, {
       childList: true,
@@ -97,124 +112,33 @@ export class VideoDetector {
   }
 
   /**
-   * Find the YouTube player element
+   * Check for player presence and initialize controls if found
    */
-  private findPlayer(): void {
-    // Try to find the player element
-    const player = document.querySelector('#movie_player') as YouTubePlayer;
-
-    if (player && this.isValidPlayer(player)) {
-      logger.info('YouTube player found');
-      this.handlePlayerFound(player);
-    }
-  }
-
-  /**
-   * Validate that the player has the expected API methods
-   */
-  private isValidPlayer(player: YouTubePlayer): boolean {
-    return (
-      typeof player.getVideoData === 'function' &&
-      typeof player.getCurrentTime === 'function' &&
-      typeof player.getDuration === 'function' &&
-      typeof player.getPlayerState === 'function'
-    );
-  }
-
-  /**
-   * Handle when a valid player is found
-   */
-  private handlePlayerFound(player: YouTubePlayer): void {
-    this.player = player;
-    this.events.onPlayerFound?.(player);
-
-    // Initialize event monitor
-    this.eventMonitor = new VideoEventMonitor(player, this.tabId);
-    this.eventMonitor.start();
-
-    // Initialize UI controls
-    this.controls = VideoControls.getInstance(this.tabId);
-    this.controls.initialize(player).catch((error) => {
-      logger.error('Failed to initialize UI controls', error);
-    });
-
-    // Start metadata monitoring
-    this.startMetadataCheck();
-
-    // Notify background script
-    const videoData = player.getVideoData?.();
-    if (videoData) {
-      chrome.runtime.sendMessage({
-        type: BackgroundMessageType.VIDEO_DETECTED,
-        tabId: this.tabId,
-        videoId: videoData.video_id,
-        url: window.location.href,
-        title: videoData.title
-      });
-    }
-  }
-
-  /**
-   * Start periodic metadata checks
-   */
-  private startMetadataCheck(): void {
-    // Clear any existing interval
-    this.clearMetadataCheck();
-
-    // Check metadata immediately
-    this.checkMetadata();
-
-    // Setup periodic checks
-    this.metadataCheckInterval = window.setInterval(() => {
-      this.checkMetadata();
-    }, 1000) as unknown as number;
-  }
-
-  /**
-   * Clear metadata check interval
-   */
-  private clearMetadataCheck(): void {
-    if (this.metadataCheckInterval !== null) {
-      clearInterval(this.metadataCheckInterval);
-      this.metadataCheckInterval = null;
-    }
-  }
-
-  /**
-   * Check and update video metadata
-   */
-  private checkMetadata(): void {
-    if (!this.player) return;
-
+  private async checkForPlayer(): Promise<void> {
     try {
-      const videoData = this.player.getVideoData?.();
-      if (!videoData) return;
+      // Only proceed if we have a valid tab ID
+      if (this.tabId === -1) {
+        logger.warn('Cannot check for player: invalid tab ID');
+        return;
+      }
 
-      const metadata: VideoMetadata = {
-        id: videoData.video_id,
-        title: videoData.title,
-        author: videoData.author,
-        url: window.location.href,
-        duration: this.player.getDuration?.() || 0
-      };
+      // Check if player is ready
+      const ready = await isPlayerReady(this.tabId);
+      if (!ready) {
+        return;
+      }
 
-      this.events.onMetadataUpdated?.(metadata);
+      // Initialize controls if not already done
+      if (!this.controls) {
+        logger.debug('Player found, initializing controls');
+        this.controls = await VideoControls.getInstance(this.tabId);
+        await this.controls.initialize();
+        
+        // Stop observing once controls are initialized
+        this.stopObserving();
+      }
     } catch (error) {
-      logger.error('Failed to extract video metadata', error);
+      logger.error('Error checking for player:', error);
     }
-  }
-
-  /**
-   * Get the current player instance
-   */
-  public getPlayer(): YouTubePlayer | null {
-    return this.player;
-  }
-
-  /**
-   * Check if we have a valid player
-   */
-  public hasValidPlayer(): boolean {
-    return this.player !== null && this.isValidPlayer(this.player);
   }
 } 
