@@ -25,6 +25,8 @@ export class BackgroundManager {
     activeVideos: new Map(),
     isInitialized: false
   };
+  private saveInterval: number | null = null;
+  private readonly SAVE_INTERVAL = 30000; // Save every 30 seconds
 
   private constructor() {}
 
@@ -53,8 +55,50 @@ export class BackgroundManager {
     // Setup tab removal listener
     chrome.tabs.onRemoved.addListener(this.handleTabRemoved.bind(this));
 
+    // Setup tab update listener
+    chrome.tabs.onUpdated.addListener(this.handleTabUpdated.bind(this));
+
+    // Start periodic saves
+    this.startPeriodicSaves();
+
+    // Run initial cleanup
+    await this.cleanupOldBookmarks();
+
+    // Setup periodic cleanup
+    setInterval(() => this.cleanupOldBookmarks(), 24 * 60 * 60 * 1000); // Run daily
+
     this.state.isInitialized = true;
     console.log('[Video Bookmarks] Background manager initialized');
+  }
+
+  /**
+   * Start periodic saves of all active videos
+   */
+  private startPeriodicSaves(): void {
+    if (this.saveInterval !== null) {
+      clearInterval(this.saveInterval);
+    }
+
+    this.saveInterval = window.setInterval(() => {
+      console.debug('[Video Bookmarks] Running periodic save');
+      for (const [tabId, activeVideo] of this.state.activeVideos.entries()) {
+        if (!activeVideo.pendingDeletion) {
+          this.saveVideoState(activeVideo);
+        }
+      }
+    }, this.SAVE_INTERVAL) as unknown as number;
+  }
+
+  /**
+   * Clean up resources
+   */
+  public destroy(): void {
+    if (this.saveInterval !== null) {
+      clearInterval(this.saveInterval);
+      this.saveInterval = null;
+    }
+    this.state.activeVideos.clear();
+    this.state.isInitialized = false;
   }
 
   /**
@@ -239,6 +283,21 @@ export class BackgroundManager {
       this.saveVideoState(activeVideo);
       this.state.activeVideos.delete(tabId);
       console.debug('[Video Bookmarks] Tab closed, video state saved:', activeVideo.id);
+    }
+  }
+
+  /**
+   * Handle tab updated event
+   */
+  private handleTabUpdated(tabId: number, changeInfo: chrome.tabs.TabChangeInfo): void {
+    // Save state when tab is refreshed or URL changes
+    if (changeInfo.status === 'loading') {
+      const activeVideo = this.state.activeVideos.get(tabId);
+      if (activeVideo) {
+        console.debug('[Video Bookmarks] Tab updated, saving video state:', activeVideo.id);
+        this.saveVideoState(activeVideo);
+        // Don't delete from activeVideos here as the video might be reloaded
+      }
     }
   }
 
@@ -542,6 +601,18 @@ export class BackgroundManager {
       console.debug('[Video Bookmarks] Confirmed deletion for video:', videoId);
     } catch (error) {
       console.error('[Video Bookmarks] Failed to confirm deletion:', error);
+    }
+  }
+
+  /**
+   * Clean up old bookmarks based on settings
+   */
+  private async cleanupOldBookmarks(): Promise<void> {
+    try {
+      console.debug('[Video Bookmarks] Running bookmark cleanup');
+      await storageManager.cleanupOldBookmarks();
+    } catch (error) {
+      console.error('[Video Bookmarks] Failed to cleanup old bookmarks:', error);
     }
   }
 } 
