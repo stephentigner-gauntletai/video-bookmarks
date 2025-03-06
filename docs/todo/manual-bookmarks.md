@@ -139,15 +139,15 @@
   - [x] UI synchronization
 
 ### 12. Bookmark Management
-- [ ] Add search functionality
-  - [ ] Search input
-  - [ ] Results filtering
-- [ ] Implement sorting
-  - [ ] Multiple sort criteria
-  - [ ] Sort persistence
-- [ ] Add filtering options
-  - [ ] Filter UI
-  - [ ] Filter logic
+- [x] Add search functionality
+  - [x] Search input
+  - [x] Results filtering
+- [x] Implement sorting
+  - [x] Multiple sort criteria
+  - [x] Sort persistence
+- [x] Add filtering options
+  - [x] Filter UI
+  - [x] Filter logic
 
 ## Phase 6: Polishing
 

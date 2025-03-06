@@ -83,9 +83,62 @@ export const BookmarkList: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletingBookmarks, setDeletingBookmarks] = useState<Record<string, number>>({});
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'date' | 'title' | 'author'>('date');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
   
   // Add refs to track timers
   const timerRefs = React.useRef<Record<string, { interval: number; timeout: number }>>({});
+
+  // Filter and sort bookmarks
+  const filteredBookmarks = React.useMemo(() => {
+    let filtered = bookmarks;
+    
+    // Apply search filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(bookmark => 
+        bookmark.title.toLowerCase().includes(query) ||
+        bookmark.author.toLowerCase().includes(query)
+      );
+    }
+
+    // Apply sorting
+    filtered = [...filtered].sort((a, b) => {
+      let comparison = 0;
+      switch (sortBy) {
+        case 'date':
+          comparison = a.updatedAt - b.updatedAt;
+          break;
+        case 'title':
+          comparison = a.title.localeCompare(b.title);
+          break;
+        case 'author':
+          comparison = a.author.localeCompare(b.author);
+          break;
+      }
+      return sortOrder === 'desc' ? -comparison : comparison;
+    });
+
+    return filtered;
+  }, [bookmarks, searchQuery, sortBy, sortOrder]);
+
+  // Save sort preferences
+  React.useEffect(() => {
+    chrome.storage.local.set({
+      bookmarkSortPreferences: { sortBy, sortOrder }
+    });
+  }, [sortBy, sortOrder]);
+
+  // Load sort preferences
+  React.useEffect(() => {
+    chrome.storage.local.get('bookmarkSortPreferences').then((result) => {
+      if (result.bookmarkSortPreferences) {
+        setSortBy(result.bookmarkSortPreferences.sortBy);
+        setSortOrder(result.bookmarkSortPreferences.sortOrder);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     loadBookmarks();
@@ -216,6 +269,20 @@ export const BookmarkList: React.FC = () => {
     }
   };
 
+  const handleSearchChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setSearchQuery(event.target.value);
+  };
+
+  const handleSortChange = (newSortBy: 'date' | 'title' | 'author') => {
+    if (newSortBy === sortBy) {
+      // Toggle order if clicking same sort field
+      setSortOrder(current => current === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortBy(newSortBy);
+      setSortOrder('desc'); // Default to descending for new sort field
+    }
+  };
+
   if (loading) {
     return <div className="loading">Loading bookmarks...</div>;
   }
@@ -233,17 +300,58 @@ export const BookmarkList: React.FC = () => {
   }
 
   return (
-    <div className="bookmark-list">
-      {bookmarks.map(bookmark => (
-        <BookmarkItem
-          key={bookmark.id}
-          bookmark={bookmark}
-          onInitiateDelete={handleInitiateDelete}
-          onUndoDelete={handleUndoDelete}
-          isDeleting={bookmark.id in deletingBookmarks}
-          timeLeft={deletingBookmarks[bookmark.id] || 0}
+    <div className="bookmark-list-container">
+      <div className="bookmark-controls">
+        <input
+          type="text"
+          className="search-input"
+          placeholder="Search bookmarks..."
+          value={searchQuery}
+          onChange={handleSearchChange}
         />
-      ))}
+        <div className="sort-controls">
+          <button
+            className={`sort-button ${sortBy === 'date' ? 'active' : ''}`}
+            onClick={() => handleSortChange('date')}
+            title={`Sort by date ${sortBy === 'date' ? (sortOrder === 'desc' ? '(newest first)' : '(oldest first)') : ''}`}
+          >
+            Date {sortBy === 'date' && (sortOrder === 'desc' ? '↓' : '↑')}
+          </button>
+          <button
+            className={`sort-button ${sortBy === 'title' ? 'active' : ''}`}
+            onClick={() => handleSortChange('title')}
+            title={`Sort by title ${sortBy === 'title' ? (sortOrder === 'desc' ? '(Z to A)' : '(A to Z)') : ''}`}
+          >
+            Title {sortBy === 'title' && (sortOrder === 'desc' ? '↓' : '↑')}
+          </button>
+          <button
+            className={`sort-button ${sortBy === 'author' ? 'active' : ''}`}
+            onClick={() => handleSortChange('author')}
+            title={`Sort by author ${sortBy === 'author' ? (sortOrder === 'desc' ? '(Z to A)' : '(A to Z)') : ''}`}
+          >
+            Author {sortBy === 'author' && (sortOrder === 'desc' ? '↓' : '↑')}
+          </button>
+        </div>
+      </div>
+
+      <div className="bookmark-list">
+        {filteredBookmarks.map(bookmark => (
+          <BookmarkItem
+            key={bookmark.id}
+            bookmark={bookmark}
+            onInitiateDelete={handleInitiateDelete}
+            onUndoDelete={handleUndoDelete}
+            isDeleting={bookmark.id in deletingBookmarks}
+            timeLeft={deletingBookmarks[bookmark.id] || 0}
+          />
+        ))}
+      </div>
+
+      {filteredBookmarks.length === 0 && searchQuery && (
+        <div className="no-results">
+          No bookmarks found matching "{searchQuery}"
+        </div>
+      )}
     </div>
   );
 }; 

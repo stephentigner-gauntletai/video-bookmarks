@@ -62,6 +62,7 @@ body {
   line-height: 1.4;
   color: #333;
   background-color: #fff;
+  overflow-x: hidden;
 }
 
 /* Popup container */
@@ -69,8 +70,9 @@ body {
   display: flex;
   flex-direction: column;
   height: 100vh;
-  max-width: 100%;
+  width: 100%;
   box-sizing: border-box;
+  overflow-x: hidden;
 }
 
 /* Header */
@@ -94,9 +96,87 @@ body {
 .popup-content {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 16px;
   width: 100%;
   box-sizing: border-box;
+}
+
+/* Bookmark list container */
+.bookmark-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Bookmark controls */
+.bookmark-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 0 8px;
+  border-bottom: 1px solid #eee;
+  position: sticky;
+  top: 0;
+  background: #fff;
+  z-index: 1;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Search input */
+.search-input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s ease;
+  box-sizing: border-box;
+}
+
+.search-input:focus {
+  border-color: #1a73e8;
+}
+
+/* Sort controls */
+.sort-controls {
+  display: flex;
+  gap: 8px;
+}
+
+.sort-button {
+  padding: 6px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: none;
+  color: #666;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex: 1;
+}
+
+.sort-button:hover {
+  border-color: #1a73e8;
+  color: #1a73e8;
+}
+
+.sort-button.active {
+  border-color: #1a73e8;
+  color: #1a73e8;
+  background: rgba(26, 115, 232, 0.1);
+}
+
+/* No results message */
+.no-results {
+  text-align: center;
+  padding: 24px;
+  color: #666;
+  font-style: italic;
 }
 
 /* Bookmark list */
@@ -317,5 +397,40 @@ body {
 
   .bookmark-item.deleting {
     border-color: #f28b82;
+  }
+
+  .bookmark-controls {
+    border-bottom-color: #3c4043;
+    background: #202124;
+  }
+
+  .search-input {
+    background: #292a2d;
+    border-color: #3c4043;
+    color: #e8eaed;
+  }
+
+  .search-input:focus {
+    border-color: #8ab4f8;
+  }
+
+  .sort-button {
+    border-color: #3c4043;
+    color: #9aa0a6;
+  }
+
+  .sort-button:hover {
+    border-color: #8ab4f8;
+    color: #8ab4f8;
+  }
+
+  .sort-button.active {
+    border-color: #8ab4f8;
+    color: #8ab4f8;
+    background: rgba(138, 180, 248, 0.1);
+  }
+
+  .no-results {
+    color: #9aa0a6;
   }
 }
