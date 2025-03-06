@@ -88,12 +88,39 @@ export const BookmarkList: React.FC = () => {
 
   useEffect(() => {
     loadBookmarks();
-    // Cleanup timers on unmount
+    // Setup message listener for bookmark updates
+    const messageListener = (message: any) => {
+      if (!message.type) return;
+
+      switch (message.type) {
+        case BackgroundMessageType.CONFIRM_DELETE:
+          // Remove the bookmark from the list when deletion is confirmed
+          setBookmarks(prev => prev.filter(b => b.id !== message.videoId));
+          setDeletingBookmarks(prev => {
+            const { [message.videoId]: _, ...rest } = prev;
+            return rest;
+          });
+          break;
+
+        case BackgroundMessageType.UNDO_DELETE:
+          // Remove from deleting state when deletion is undone
+          setDeletingBookmarks(prev => {
+            const { [message.videoId]: _, ...rest } = prev;
+            return rest;
+          });
+          break;
+      }
+    };
+
+    chrome.runtime.onMessage.addListener(messageListener);
+
+    // Cleanup timers and listener on unmount
     return () => {
       Object.values(timerRefs.current).forEach(({ interval, timeout }) => {
         clearInterval(interval);
         clearTimeout(timeout);
       });
+      chrome.runtime.onMessage.removeListener(messageListener);
     };
   }, []);
 
@@ -119,36 +146,33 @@ export const BookmarkList: React.FC = () => {
         clearTimeout(timerRefs.current[id].timeout);
       }
 
-      // Send initiate delete message
+      // Start countdown in UI
+      setDeletingBookmarks(prev => ({ ...prev, [id]: 5 }));
+
+      // Send initiate delete message to background
       chrome.runtime.sendMessage({
         type: BackgroundMessageType.INITIATE_DELETE,
-        videoId: id,
-        tabId: -1
+        videoId: id
       });
-
-      // Start countdown
-      setDeletingBookmarks(prev => ({ ...prev, [id]: 5 }));
 
       // Update countdown every second
       const countdownInterval = setInterval(() => {
         setDeletingBookmarks(prev => {
           const timeLeft = prev[id] - 1;
-          if (timeLeft <= 0) {
-            handleConfirmDelete(id);
-            const { [id]: _, ...rest } = prev;
-            return rest;
-          }
-          return { ...prev, [id]: timeLeft };
+          return timeLeft <= 0 ? 
+            // Let background handle actual deletion
+            { ...prev, [id]: 0 } : 
+            { ...prev, [id]: timeLeft };
         });
       }, 1000);
 
       // Set final deletion timer
       const deletionTimeout = setTimeout(() => {
         clearInterval(countdownInterval);
-        // Remove from deleting state if it's still there
-        setDeletingBookmarks(prev => {
-          const { [id]: _, ...rest } = prev;
-          return rest;
+        // Send confirm delete message to background
+        chrome.runtime.sendMessage({
+          type: BackgroundMessageType.CONFIRM_DELETE,
+          videoId: id
         });
       }, 5000);
 
@@ -173,11 +197,10 @@ export const BookmarkList: React.FC = () => {
         delete timerRefs.current[id];
       }
 
-      // Send undo delete message
+      // Send undo delete message to background
       chrome.runtime.sendMessage({
         type: BackgroundMessageType.UNDO_DELETE,
-        videoId: id,
-        tabId: -1
+        videoId: id
       });
 
       // Remove from deleting state
@@ -188,24 +211,6 @@ export const BookmarkList: React.FC = () => {
     } catch (error) {
       console.error('Error undoing delete:', error);
       setError('Failed to undo deletion');
-      setTimeout(() => setError(null), 3000);
-    }
-  };
-
-  const handleConfirmDelete = async (id: string) => {
-    try {
-      // Send confirm delete message
-      chrome.runtime.sendMessage({
-        type: BackgroundMessageType.CONFIRM_DELETE,
-        videoId: id,
-        tabId: -1
-      });
-
-      // Remove from list
-      setBookmarks(prev => prev.filter(b => b.id !== id));
-    } catch (error) {
-      console.error('Error confirming delete:', error);
-      setError('Failed to delete bookmark');
       setTimeout(() => setError(null), 3000);
     }
   };

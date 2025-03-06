@@ -54,7 +54,7 @@ export class BackgroundManager {
     chrome.tabs.onRemoved.addListener(this.handleTabRemoved.bind(this));
 
     this.state.isInitialized = true;
-    console.log('Background manager initialized');
+    console.log('[Video Bookmarks] Background manager initialized');
   }
 
   /**
@@ -66,6 +66,8 @@ export class BackgroundManager {
     sendResponse: (response?: any) => void
   ): boolean {
     try {
+      console.debug('[Video Bookmarks] Received message:', { message, sender });
+
       // Special case for GET_TAB_ID message
       if (message.type === BackgroundMessageType.GET_TAB_ID) {
         console.debug('[Video Bookmarks] Handling GET_TAB_ID message', {
@@ -96,10 +98,30 @@ export class BackgroundManager {
         return true;
       }
 
-      // For all other messages, ensure we have a valid tabId
+      // Handle deletion messages from popup (these don't need a tabId)
+      if ([
+        BackgroundMessageType.INITIATE_DELETE,
+        BackgroundMessageType.UNDO_DELETE,
+        BackgroundMessageType.CONFIRM_DELETE
+      ].includes(message.type)) {
+        switch (message.type) {
+          case BackgroundMessageType.INITIATE_DELETE:
+            this.handleInitiateDelete(message as InitiateDeleteMessage);
+            break;
+          case BackgroundMessageType.UNDO_DELETE:
+            this.handleUndoDelete(message as UndoDeleteMessage);
+            break;
+          case BackgroundMessageType.CONFIRM_DELETE:
+            this.handleConfirmDelete(message as ConfirmDeleteMessage);
+            break;
+        }
+        return false;
+      }
+
+      // For all other messages (from content scripts), ensure we have a valid tabId
       const tabId = sender.tab?.id;
       if (typeof tabId !== 'number') {
-        console.error('Invalid tabId in message:', message);
+        console.error('[Video Bookmarks] Invalid tabId in content script message:', message);
         return false;
       }
 
@@ -125,21 +147,9 @@ export class BackgroundManager {
         case BackgroundMessageType.GET_VIDEO_STATE:
           this.handleGetVideoState(messageWithTabId as GetVideoStateMessage).then(sendResponse);
           return true; // Will respond asynchronously
-
-        case BackgroundMessageType.INITIATE_DELETE:
-          this.handleInitiateDelete(message as InitiateDeleteMessage);
-          break;
-
-        case BackgroundMessageType.UNDO_DELETE:
-          this.handleUndoDelete(message as UndoDeleteMessage);
-          break;
-
-        case BackgroundMessageType.CONFIRM_DELETE:
-          this.handleConfirmDelete(message as ConfirmDeleteMessage);
-          break;
       }
     } catch (error) {
-      console.error('Error handling message:', error);
+      console.error('[Video Bookmarks] Error handling message:', error);
     }
 
     return false;
@@ -162,6 +172,7 @@ export class BackgroundManager {
 
     // Add to active videos
     this.state.activeVideos.set(message.tabId, activeVideo);
+    console.debug('[Video Bookmarks] Video detected:', activeVideo);
   }
 
   /**
@@ -172,7 +183,7 @@ export class BackgroundManager {
     if (activeVideo && activeVideo.id === message.videoId) {
       this.saveVideoState(activeVideo);
       this.state.activeVideos.delete(message.tabId);
-      console.log('Video closed:', message.videoId);
+      console.debug('[Video Bookmarks] Video closed:', message.videoId);
     }
   }
 
@@ -226,7 +237,7 @@ export class BackgroundManager {
     if (activeVideo) {
       this.saveVideoState(activeVideo);
       this.state.activeVideos.delete(tabId);
-      console.log('Tab closed, video state saved:', activeVideo.id);
+      console.debug('[Video Bookmarks] Tab closed, video state saved:', activeVideo.id);
     }
   }
 
@@ -246,9 +257,9 @@ export class BackgroundManager {
       };
 
       await storageManager.saveBookmark(bookmark);
-      console.log('Video state saved:', bookmark);
+      console.debug('[Video Bookmarks] Video state saved:', bookmark);
     } catch (error) {
-      console.error('Error saving video state:', error);
+      console.error('[Video Bookmarks] Error saving video state:', error);
     }
   }
 
@@ -415,32 +426,75 @@ export class BackgroundManager {
           }
         `
       });
+      console.debug('[Video Bookmarks] Styles injected for tab:', tabId);
     } catch (error) {
-      console.error('Failed to inject styles:', error);
+      console.error('[Video Bookmarks] Failed to inject styles:', error);
     }
   }
 
   /**
    * Handle initiate delete message
    */
-  private handleInitiateDelete(message: InitiateDeleteMessage): void {
-    // If this is from a tab, store the active video for potential undo
-    const activeVideo = this.state.activeVideos.get(message.tabId);
-    if (activeVideo && activeVideo.id === message.videoId) {
-      // Keep the active video in the map but mark it as pending deletion
-      activeVideo.pendingDeletion = true;
+  private async handleInitiateDelete(message: InitiateDeleteMessage): Promise<void> {
+    const { videoId } = message;
+    
+    try {
+      // Find all YouTube tabs
+      const tabs = await chrome.tabs.query({ url: ['*://*.youtube.com/*', '*://youtube.com/*'] });
+      
+      // Mark video as pending deletion in active videos
+      for (const [tabId, activeVideo] of this.state.activeVideos.entries()) {
+        if (activeVideo.id === videoId) {
+          activeVideo.pendingDeletion = true;
+        }
+      }
+
+      // Broadcast to all YouTube tabs
+      for (const tab of tabs) {
+        if (tab.id) {
+          chrome.tabs.sendMessage(tab.id, {
+            type: BackgroundMessageType.INITIATE_DELETE,
+            videoId,
+            tabId: tab.id
+          });
+        }
+      }
+      console.debug('[Video Bookmarks] Initiated deletion for video:', videoId);
+    } catch (error) {
+      console.error('[Video Bookmarks] Error initiating deletion:', error);
     }
   }
 
   /**
    * Handle undo delete message
    */
-  private handleUndoDelete(message: UndoDeleteMessage): void {
-    // If this is from a tab, restore the active video
-    const activeVideo = this.state.activeVideos.get(message.tabId);
-    if (activeVideo && activeVideo.id === message.videoId) {
-      // Remove pending deletion flag
-      delete activeVideo.pendingDeletion;
+  private async handleUndoDelete(message: UndoDeleteMessage): Promise<void> {
+    const { videoId } = message;
+    
+    try {
+      // Find all YouTube tabs
+      const tabs = await chrome.tabs.query({ url: ['*://*.youtube.com/*', '*://youtube.com/*'] });
+      
+      // Remove pending deletion flag from active videos
+      for (const [tabId, activeVideo] of this.state.activeVideos.entries()) {
+        if (activeVideo.id === videoId) {
+          delete activeVideo.pendingDeletion;
+        }
+      }
+
+      // Broadcast to all YouTube tabs
+      for (const tab of tabs) {
+        if (tab.id) {
+          chrome.tabs.sendMessage(tab.id, {
+            type: BackgroundMessageType.UNDO_DELETE,
+            videoId,
+            tabId: tab.id
+          });
+        }
+      }
+      console.debug('[Video Bookmarks] Undid deletion for video:', videoId);
+    } catch (error) {
+      console.error('[Video Bookmarks] Error undoing deletion:', error);
     }
   }
 
@@ -448,19 +502,44 @@ export class BackgroundManager {
    * Handle confirm delete message
    */
   private async handleConfirmDelete(message: ConfirmDeleteMessage): Promise<void> {
-    // If this is from a tab, remove the active video
-    const activeVideo = this.state.activeVideos.get(message.tabId);
-    if (activeVideo && activeVideo.id === message.videoId) {
-      // Save final state before removal
-      await this.saveVideoState(activeVideo);
-      this.state.activeVideos.delete(message.tabId);
-    }
-
-    // Delete the bookmark
+    const { videoId } = message;
+    
     try {
-      await storageManager.deleteBookmark(message.videoId);
+      // Find all YouTube tabs
+      const tabs = await chrome.tabs.query({ url: ['*://*.youtube.com/*', '*://youtube.com/*'] });
+      
+      // Remove from active videos
+      for (const [tabId, activeVideo] of this.state.activeVideos.entries()) {
+        if (activeVideo.id === videoId) {
+          // Save final state before removal
+          await this.saveVideoState(activeVideo);
+          this.state.activeVideos.delete(tabId);
+        }
+      }
+
+      // Delete the bookmark
+      await storageManager.deleteBookmark(videoId);
+
+      // Broadcast to all YouTube tabs and popup
+      for (const tab of tabs) {
+        if (tab.id) {
+          chrome.tabs.sendMessage(tab.id, {
+            type: BackgroundMessageType.CONFIRM_DELETE,
+            videoId,
+            tabId: tab.id
+          });
+        }
+      }
+
+      // Also broadcast to popup
+      chrome.runtime.sendMessage({
+        type: BackgroundMessageType.CONFIRM_DELETE,
+        videoId
+      });
+
+      console.debug('[Video Bookmarks] Confirmed deletion for video:', videoId);
     } catch (error) {
-      console.error('Failed to delete bookmark:', error);
+      console.error('[Video Bookmarks] Failed to confirm deletion:', error);
     }
   }
 } 

@@ -111,6 +111,9 @@ export class VideoControls {
       logger.debug('Starting timestamp updates');
       this.startTimestampUpdates();
 
+      // Setup message listener for deletion events
+      this.setupMessageListener();
+
       logger.info('UI controls initialization complete');
     } catch (error) {
       logger.error('Failed to initialize UI controls:', error);
@@ -118,6 +121,60 @@ export class VideoControls {
       this.destroy();
       throw error;
     }
+  }
+
+  /**
+   * Setup message listener for deletion events
+   */
+  private setupMessageListener(): void {
+    chrome.runtime.onMessage.addListener((message, sender) => {
+      if (!this.videoId) {
+        logger.debug('Ignoring message - no videoId:', message);
+        return;
+      }
+
+      logger.debug('Controls received message:', { message, videoId: this.videoId, tabId: this.tabId });
+
+      switch (message.type) {
+        case BackgroundMessageType.INITIATE_DELETE:
+          if (message.videoId === this.videoId) {
+            logger.debug('Processing initiate delete', { message, videoId: this.videoId });
+            // Bookmark is being deleted from another source (e.g. popup)
+            if (this.eventMonitor) {
+              this.eventMonitor.stop();
+            }
+            this.showUndoUI();
+          }
+          break;
+
+        case BackgroundMessageType.UNDO_DELETE:
+          if (message.videoId === this.videoId) {
+            logger.debug('Processing undo delete', { message, videoId: this.videoId });
+            // Deletion was undone from another source
+            this.clearTimers();
+            this.hideUndoUI();
+            if (this.eventMonitor) {
+              this.eventMonitor.start();
+            }
+            this.setActive(true);
+          }
+          break;
+
+        case BackgroundMessageType.CONFIRM_DELETE:
+          if (message.videoId === this.videoId) {
+            logger.debug('Processing confirm delete', { message, videoId: this.videoId });
+            // Deletion was confirmed from another source
+            this.clearTimers();
+            this.hideUndoUI();
+            this.eventMonitor = null;
+            this.setActive(false);
+          }
+          break;
+
+        default:
+          logger.debug('Ignoring unhandled message type:', message.type);
+      }
+    });
   }
 
   /**
@@ -129,7 +186,7 @@ export class VideoControls {
       this.eventMonitor.stop();
       this.eventMonitor = null;
     }
-    this.clearTimers();  // Clear both timers
+    this.clearTimers();
     this.container?.remove();
     this.container = null;
     this.bookmarkButton = null;
