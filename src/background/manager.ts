@@ -165,6 +165,7 @@ export class BackgroundManager {
       tabId: message.tabId,
       url: message.url,
       title: message.title,
+      author: message.author,
       lastTimestamp: 0,
       maxTimestamp: 0,
       lastUpdate: Date.now()
@@ -250,6 +251,7 @@ export class BackgroundManager {
         id: activeVideo.id,
         url: activeVideo.url,
         title: activeVideo.title,
+        author: activeVideo.author,
         lastTimestamp: activeVideo.lastTimestamp,
         maxTimestamp: activeVideo.maxTimestamp,
         createdAt: Date.now(),

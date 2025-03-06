@@ -5,6 +5,7 @@ export interface VideoBookmark {
   id: string;           // YouTube video ID
   url: string;          // Full video URL
   title: string;        // Video title
+  author: string;       // Video author/channel name
   lastTimestamp: number;// Last known position in seconds
   maxTimestamp: number; // Furthest watched position in seconds
   createdAt: number;    // Timestamp of bookmark creation

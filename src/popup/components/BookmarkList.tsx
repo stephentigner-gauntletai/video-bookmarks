@@ -50,6 +50,7 @@ const BookmarkItem: React.FC<BookmarkItemProps> = ({
     >
       <div className="bookmark-content">
         <h3 className="bookmark-title">{bookmark.title}</h3>
+        <div className="bookmark-author">{bookmark.author}</div>
         <div className="bookmark-info">
           <span className="bookmark-time">
             {formatTime(bookmark.lastTimestamp)} / {formatTime(bookmark.maxTimestamp)}

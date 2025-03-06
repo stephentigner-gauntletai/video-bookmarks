@@ -8,6 +8,7 @@ export interface ActiveVideo {
   tabId: number;
   url: string;
   title: string;
+  author: string;
   lastTimestamp: number;
   maxTimestamp: number;
   lastUpdate: number;
@@ -64,6 +65,7 @@ export interface VideoDetectedMessage extends TabBackgroundMessage {
   videoId: string;
   url: string;
   title: string;
+  author: string;
 }
 
 /**

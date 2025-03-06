@@ -342,7 +342,8 @@ export class VideoControls {
       tabId: this.tabId,
       videoId: this.videoId,
       url: window.location.href,
-      title: videoData.title
+      title: videoData.title,
+      author: videoData.author
     });
 
     // Start event monitoring
