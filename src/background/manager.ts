@@ -79,7 +79,7 @@ export class BackgroundManager {
       clearInterval(this.saveInterval);
     }
 
-    this.saveInterval = window.setInterval(() => {
+    this.saveInterval = setInterval(() => {
       console.debug('[Video Bookmarks] Running periodic save');
       for (const [tabId, activeVideo] of this.state.activeVideos.entries()) {
         if (!activeVideo.pendingDeletion) {
