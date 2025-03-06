@@ -203,17 +203,30 @@ export class BackgroundManager {
    * Handle video detected message
    */
   private handleVideoDetected(message: VideoDetectedMessage): void {
+    // Get existing active video if any
+    const existingVideo = this.state.activeVideos.get(message.tabId);
+
     // Create or update active video
     const activeVideo: ActiveVideo = {
       id: message.videoId,
       tabId: message.tabId,
       url: message.url,
-      title: message.title,
-      author: message.author,
-      lastTimestamp: message.lastTimestamp ?? 0,
-      maxTimestamp: message.maxTimestamp ?? 0,
+      // Preserve existing metadata if new values are empty
+      title: message.title || existingVideo?.title || '',
+      author: message.author || existingVideo?.author || '',
+      lastTimestamp: message.lastTimestamp ?? existingVideo?.lastTimestamp ?? 0,
+      maxTimestamp: message.maxTimestamp ?? existingVideo?.maxTimestamp ?? 0,
       lastUpdate: Date.now()
     };
+
+    // Only update if we have valid metadata
+    if (!activeVideo.title || !activeVideo.author) {
+      console.warn('[Video Bookmarks] Received empty metadata, preserving existing state:', {
+        received: { title: message.title, author: message.author },
+        preserved: { title: existingVideo?.title, author: existingVideo?.author }
+      });
+      return;
+    }
 
     // Add to active videos
     this.state.activeVideos.set(message.tabId, activeVideo);
@@ -352,6 +365,14 @@ export class BackgroundManager {
         getPlayerState(): number;
       }
 
+      // Keep track of last known good values
+      let lastKnownGoodData: {
+        videoId?: string;
+        title?: string;
+        author?: string;
+        duration?: number;
+      } = {};
+
       window.addEventListener('message', function(event) {
         if (event.data.type !== 'QUERY_PLAYER') return;
         
@@ -417,6 +438,39 @@ export class BackgroundManager {
               error: 'Invalid video data returned from player'
             }, '*');
             return;
+          }
+
+          // Validate the data
+          const isValidData = 
+            videoData.video_id && 
+            videoData.title && 
+            videoData.title.trim() !== '' &&
+            videoData.author && 
+            videoData.author.trim() !== '';
+
+          if (isValidData) {
+            // Update last known good data
+            lastKnownGoodData = {
+              videoId: videoData.video_id,
+              title: videoData.title,
+              author: videoData.author,
+              duration: player.getDuration()
+            };
+          } else {
+            console.warn('[Video Bookmarks] Bridge: Invalid metadata detected, using last known good data');
+            // If we have no valid data at all, report an error
+            if (!lastKnownGoodData.videoId) {
+              window.postMessage({ 
+                type: 'PLAYER_STATUS', 
+                status: 'error',
+                error: 'No valid metadata available'
+              }, '*');
+              return;
+            }
+            // Use last known good data
+            videoData.video_id = lastKnownGoodData.videoId;
+            videoData.title = lastKnownGoodData.title || videoData.title;
+            videoData.author = lastKnownGoodData.author || videoData.author;
           }
 
           console.debug('[Video Bookmarks] Bridge: Player API ready, sending data');
