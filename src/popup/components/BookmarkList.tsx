@@ -29,8 +29,18 @@ const BookmarkItem: React.FC<BookmarkItemProps> = ({
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const handleClick = () => {
-    chrome.tabs.create({ url: bookmark.url });
+  const getUrlWithTimestamp = (timestamp: number): string => {
+    // Parse the base URL
+    const url = new URL(bookmark.url);
+    // Set the timestamp parameter
+    url.searchParams.set('t', Math.floor(timestamp).toString());
+    return url.toString();
+  };
+
+  const handleClick = (e: React.MouseEvent) => {
+    // Use maxTimestamp if shift is held, otherwise use lastTimestamp
+    const timestamp = e.shiftKey ? bookmark.maxTimestamp : bookmark.lastTimestamp;
+    chrome.tabs.create({ url: getUrlWithTimestamp(timestamp) });
   };
 
   const handleDelete = (e: React.MouseEvent) => {
@@ -47,6 +57,7 @@ const BookmarkItem: React.FC<BookmarkItemProps> = ({
     <div 
       className={`bookmark-item ${isDeleting ? 'deleting' : ''}`}
       onClick={handleClick}
+      title={`Click to open at ${formatTime(bookmark.lastTimestamp)}\nShift+Click to open at ${formatTime(bookmark.maxTimestamp)}`}
     >
       <div className="bookmark-content">
         <h3 className="bookmark-title">{bookmark.title}</h3>
@@ -301,6 +312,10 @@ export const BookmarkList: React.FC = () => {
 
   return (
     <div className="bookmark-list-container">
+      <div className="bookmark-help">
+        Click to open video at last viewed position.
+        Hold Shift and click to open at furthest viewed position.
+      </div>
       <div className="bookmark-controls">
         <input
           type="text"
