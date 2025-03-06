@@ -1,5 +1,6 @@
 import { VideoBookmark, StorageKeys, StorageSchema, StorageError, StorageErrorType } from './types';
 import { withRetry, RetryConfig } from '../utils/retry';
+import { StorageRecovery } from './recovery';
 
 /**
  * Storage operation retry configuration
@@ -17,8 +18,13 @@ const STORAGE_RETRY_CONFIG: Partial<RetryConfig> = {
  */
 class StorageManager {
   private static instance: StorageManager;
+  private recovery: StorageRecovery;
+  private lastBackup: number = 0;
+  private readonly BACKUP_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
 
-  private constructor() {}
+  private constructor() {
+    this.recovery = StorageRecovery.getInstance();
+  }
 
   /**
    * Get the singleton instance
@@ -35,6 +41,10 @@ class StorageManager {
    */
   public async initialize(): Promise<void> {
     try {
+      // First, try to validate and repair any corrupted data
+      await this.recovery.validateAndRepair();
+
+      // Then initialize with default values if needed
       await withRetry('initialize storage', async () => {
         const storage = await this.getStorage();
         const updates: Partial<StorageSchema> = {};
@@ -53,13 +63,35 @@ class StorageManager {
         if (Object.keys(updates).length > 0) {
           await chrome.storage.local.set(updates);
         }
+
+        // Create initial backup if none exists
+        await this.checkBackup();
       }, STORAGE_RETRY_CONFIG);
     } catch (error) {
-      throw new StorageError(
-        StorageErrorType.OPERATION_FAILED,
-        'Failed to initialize storage',
-        error
-      );
+      // If initialization fails, try to restore from backup
+      try {
+        const restored = await this.recovery.restoreFromBackup();
+        if (!restored) {
+          throw new Error('No backup available');
+        }
+      } catch (backupError) {
+        throw new StorageError(
+          StorageErrorType.OPERATION_FAILED,
+          'Failed to initialize storage and restore from backup',
+          error
+        );
+      }
+    }
+  }
+
+  /**
+   * Check if backup is needed and create one if necessary
+   */
+  private async checkBackup(): Promise<void> {
+    const now = Date.now();
+    if (now - this.lastBackup >= this.BACKUP_INTERVAL) {
+      await this.recovery.createBackup();
+      this.lastBackup = now;
     }
   }
 
@@ -97,6 +129,9 @@ class StorageManager {
         await chrome.storage.local.set({
           [StorageKeys.BOOKMARKS]: bookmarks
         });
+
+        // Check if backup is needed after significant changes
+        await this.checkBackup();
       }, STORAGE_RETRY_CONFIG);
     } catch (error) {
       if (error instanceof StorageError) {
@@ -249,6 +284,28 @@ class StorageManager {
         'Failed to update settings',
         error
       );
+    }
+  }
+
+  /**
+   * Attempt to recover corrupted data
+   */
+  public async recover(): Promise<boolean> {
+    try {
+      // First try to validate and repair
+      await this.recovery.validateAndRepair();
+      return true;
+    } catch (error) {
+      // If repair fails, try to restore from backup
+      try {
+        return await this.recovery.restoreFromBackup();
+      } catch (backupError) {
+        throw new StorageError(
+          StorageErrorType.OPERATION_FAILED,
+          'Failed to recover storage data',
+          backupError
+        );
+      }
     }
   }
 }
