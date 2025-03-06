@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { VideoBookmark } from '../../storage/types';
 import { storageManager } from '../../storage';
 import { BackgroundMessageType } from '../../background/types';
+import { useErrorNotification, useSuccessNotification, useWarningNotification } from '../../components/NotificationManager';
 
 interface BookmarkItemProps {
   bookmark: VideoBookmark;
@@ -100,6 +101,9 @@ export const BookmarkList: React.FC = () => {
   
   // Add refs to track timers
   const timerRefs = React.useRef<Record<string, { interval: number; timeout: number }>>({});
+  const showError = useErrorNotification();
+  const showSuccess = useSuccessNotification();
+  const showWarning = useWarningNotification();
 
   // Filter and sort bookmarks
   const filteredBookmarks = React.useMemo(() => {
@@ -165,6 +169,7 @@ export const BookmarkList: React.FC = () => {
             const { [message.videoId]: _, ...rest } = prev;
             return rest;
           });
+          showSuccess('Bookmark deleted successfully');
           break;
 
         case BackgroundMessageType.UNDO_DELETE:
@@ -173,6 +178,7 @@ export const BookmarkList: React.FC = () => {
             const { [message.videoId]: _, ...rest } = prev;
             return rest;
           });
+          showSuccess('Bookmark deletion cancelled');
           break;
       }
     };
@@ -187,7 +193,7 @@ export const BookmarkList: React.FC = () => {
       });
       chrome.runtime.onMessage.removeListener(messageListener);
     };
-  }, []);
+  }, [showSuccess]);
 
   const loadBookmarks = async () => {
     try {
@@ -196,8 +202,9 @@ export const BookmarkList: React.FC = () => {
       const allBookmarks = await storageManager.getAllBookmarks();
       setBookmarks(allBookmarks.sort((a, b) => b.updatedAt - a.updatedAt));
     } catch (error) {
-      setError('Failed to load bookmarks');
-      console.error('Error loading bookmarks:', error);
+      const message = error instanceof Error ? error.message : 'Failed to load bookmarks';
+      setError(message);
+      showError(message, loadBookmarks);  // Pass loadBookmarks as retry action
     } finally {
       setLoading(false);
     }
@@ -219,6 +226,14 @@ export const BookmarkList: React.FC = () => {
         type: BackgroundMessageType.INITIATE_DELETE,
         videoId: id
       });
+
+      // Show warning notification with undo option
+      showWarning('Bookmark will be deleted in 5 seconds', [
+        {
+          label: 'Undo',
+          onClick: () => handleUndo(id)
+        }
+      ]);
 
       // Update countdown every second
       const countdownInterval = setInterval(() => {
@@ -248,12 +263,11 @@ export const BookmarkList: React.FC = () => {
       };
     } catch (error) {
       console.error('Error initiating delete:', error);
-      setError('Failed to delete bookmark');
-      setTimeout(() => setError(null), 3000);
+      showError('Failed to delete bookmark');
     }
   };
 
-  const handleUndoDelete = async (id: string) => {
+  const handleUndo = async (id: string) => {
     try {
       // Clear timers
       if (timerRefs.current[id]) {
@@ -275,8 +289,7 @@ export const BookmarkList: React.FC = () => {
       });
     } catch (error) {
       console.error('Error undoing delete:', error);
-      setError('Failed to undo deletion');
-      setTimeout(() => setError(null), 3000);
+      showError('Failed to undo deletion');
     }
   };
 
@@ -355,7 +368,7 @@ export const BookmarkList: React.FC = () => {
             key={bookmark.id}
             bookmark={bookmark}
             onInitiateDelete={handleInitiateDelete}
-            onUndoDelete={handleUndoDelete}
+            onUndoDelete={handleUndo}
             isDeleting={bookmark.id in deletingBookmarks}
             timeLeft={deletingBookmarks[bookmark.id] || 0}
           />
