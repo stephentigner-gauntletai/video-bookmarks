@@ -51,5 +51,5 @@ This will leverage the functionality from the manual bookmarks and expand it to 
 Supported sites:
 
 * YouTube  
-* HIDIVE
+* ~~HIDIVE~~ (due to time constraints, not implementing support for this site for now)
 
