@@ -109,20 +109,10 @@ export class VideoEventMonitor {
    * Handle video time updates
    */
   private async handleTimeUpdate(currentTime: number): Promise<void> {
-    // Calculate time difference
-    const timeDiff = currentTime - this.lastTimestamp;
-    
-    // Only update if:
-    // 1. Moving forward, or
-    // 2. Small rewind (less than 10 seconds), or
-    // 3. Haven't sent an update in a while
-    const timeSinceLastUpdate = Date.now() - this.lastUpdateTime;
-    const shouldUpdate = 
-      timeDiff > 0 || // Moving forward
-      (timeDiff < 0 && Math.abs(timeDiff) < 10) || // Small rewind
-      timeSinceLastUpdate > 5000; // Force update every 5 seconds
-
-    if (!shouldUpdate) {
+    // Get video data for the update
+    const videoData = await getVideoData(this.tabId);
+    if (!videoData) {
+      logger.error('Failed to get video data for timestamp update');
       return;
     }
 
@@ -130,13 +120,6 @@ export class VideoEventMonitor {
     this.lastTimestamp = currentTime;
     if (currentTime > this.maxTimestamp) {
       this.maxTimestamp = currentTime;
-    }
-
-    // Get video data for the update
-    const videoData = await getVideoData(this.tabId);
-    if (!videoData) {
-      logger.error('Failed to get video data for timestamp update');
-      return;
     }
 
     // Record update time

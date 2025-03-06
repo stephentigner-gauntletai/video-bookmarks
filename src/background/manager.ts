@@ -254,16 +254,8 @@ export class BackgroundManager {
       return;
     }
 
-    // Only update lastTimestamp if it's a valid forward progression or small rewind
-    const timeDiff = message.timestamp - activeVideo.lastTimestamp;
-    const isValidUpdate = 
-      timeDiff > 0 || // Moving forward
-      (timeDiff < 0 && Math.abs(timeDiff) < 10) || // Small rewind (less than 10 seconds)
-      message.isMaxTimestamp; // Explicit max timestamp update
-
-    if (isValidUpdate) {
-      activeVideo.lastTimestamp = message.timestamp;
-    }
+    // Always update lastTimestamp to current position
+    activeVideo.lastTimestamp = message.timestamp;
 
     // Only update maxTimestamp if we've watched further
     if (message.isMaxTimestamp || message.timestamp > activeVideo.maxTimestamp) {
