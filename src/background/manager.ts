@@ -12,7 +12,8 @@ import {
   GetVideoStateMessage,
   InitiateDeleteMessage,
   UndoDeleteMessage,
-  ConfirmDeleteMessage
+  ConfirmDeleteMessage,
+  AutoTrackChangedMessage
 } from './types';
 import { handlePlayerProxyMessage } from './playerProxy';
 
@@ -23,7 +24,8 @@ export class BackgroundManager {
   private static instance: BackgroundManager;
   private state: BackgroundState = {
     activeVideos: new Map(),
-    isInitialized: false
+    isInitialized: false,
+    autoTrackEnabled: false
   };
   private saveInterval: number | null = null;
   private readonly SAVE_INTERVAL = 30000; // Save every 30 seconds
@@ -49,6 +51,10 @@ export class BackgroundManager {
     // Initialize storage
     await storageManager.initialize();
 
+    // Load auto-track settings
+    const settings = await storageManager.getAutoTrackSettings();
+    this.state.autoTrackEnabled = settings.enabled;
+
     // Setup message listeners
     chrome.runtime.onMessage.addListener(this.handleMessage.bind(this));
 
@@ -57,6 +63,9 @@ export class BackgroundManager {
 
     // Setup tab update listener
     chrome.tabs.onUpdated.addListener(this.handleTabUpdated.bind(this));
+
+    // Setup storage change listener
+    chrome.storage.onChanged.addListener(this.handleStorageChanged.bind(this));
 
     // Start periodic saves
     this.startPeriodicSaves();
@@ -69,6 +78,25 @@ export class BackgroundManager {
 
     this.state.isInitialized = true;
     console.log('[Video Bookmarks] Background manager initialized');
+  }
+
+  /**
+   * Handle storage changes
+   */
+  private async handleStorageChanged(
+    changes: { [key: string]: chrome.storage.StorageChange },
+    areaName: string
+  ): Promise<void> {
+    if (areaName !== 'local') return;
+
+    // Handle settings changes
+    if (changes.settings) {
+      const newSettings = changes.settings.newValue;
+      if (newSettings && typeof newSettings.autoTrack === 'boolean') {
+        this.state.autoTrackEnabled = newSettings.autoTrack;
+        console.debug('[Video Bookmarks] Auto-track setting changed:', this.state.autoTrackEnabled);
+      }
+    }
   }
 
   /**
@@ -131,15 +159,33 @@ export class BackgroundManager {
         BackgroundMessageType.GET_PLAYER_STATE,
         BackgroundMessageType.GET_CURRENT_TIME
       ].includes(message.type)) {
-        handlePlayerProxyMessage(message, sendResponse);
+        // Ensure we have a valid tabId for player proxy messages
+        const tabId = sender.tab?.id;
+        if (typeof tabId !== 'number') {
+          console.error('[Video Bookmarks] Invalid tabId in player proxy message:', message);
+          return false;
+        }
+        handlePlayerProxyMessage({ ...message, tabId }, sendResponse);
         return true;
       }
 
       // Handle CSS injection
       if (message.type === BackgroundMessageType.INJECT_STYLES) {
-        this.injectStyles(message.tabId);
+        const tabId = sender.tab?.id;
+        if (typeof tabId !== 'number') {
+          console.error('[Video Bookmarks] Invalid tabId in inject styles message:', message);
+          return false;
+        }
+        this.injectStyles(tabId);
         sendResponse();
         return true;
+      }
+
+      // Handle auto-track changes
+      if (message.type === BackgroundMessageType.AUTO_TRACK_CHANGED) {
+        this.state.autoTrackEnabled = message.enabled;
+        console.debug('[Video Bookmarks] Auto-track changed:', message.enabled);
+        return false;
       }
 
       // Handle deletion messages from popup (these don't need a tabId)
@@ -220,10 +266,10 @@ export class BackgroundManager {
       url: message.url,
       title: message.title || existingVideo?.title || '',
       author: message.author || existingVideo?.author || '',
-      // Only use provided timestamps or start from 0, don't preserve old timestamps
       lastTimestamp: message.lastTimestamp ?? 0,
       maxTimestamp: message.maxTimestamp ?? 0,
-      lastUpdate: Date.now()
+      lastUpdate: Date.now(),
+      autoTracked: this.state.autoTrackEnabled
     };
 
     // Only update if we have valid metadata
