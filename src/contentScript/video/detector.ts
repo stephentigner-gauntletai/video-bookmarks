@@ -1,6 +1,8 @@
 import { logger } from '../logger';
 import { VideoControls } from '../ui/controls';
 import { isPlayerReady } from './playerProxy';
+import { storageManager } from '../../storage';
+import { isSupportedSite } from '../utils';
 
 /**
  * Class responsible for detecting YouTube video pages and initializing controls
@@ -11,6 +13,7 @@ export class VideoDetector {
   private controls: VideoControls | null = null;
   private tabId: number = -1;
   private isInitialized: boolean = false;
+  private autoTrackEnabled: boolean = false;
 
   private constructor() {}
 
@@ -51,6 +54,21 @@ export class VideoDetector {
   }
 
   /**
+   * Initialize auto-track settings
+   */
+  private async initializeAutoTrack(): Promise<void> {
+    try {
+      logger.debug('Loading auto-track settings');
+      const settings = await storageManager.getAutoTrackSettings();
+      this.autoTrackEnabled = settings.enabled;
+      logger.debug('Auto-track settings loaded:', settings);
+    } catch (error) {
+      logger.error('Failed to load auto-track settings:', error);
+      this.autoTrackEnabled = false;
+    }
+  }
+
+  /**
    * Initialize the detector
    */
   public async initialize(): Promise<void> {
@@ -58,9 +76,24 @@ export class VideoDetector {
 
     try {
       await this.initializeTabId();
+      await this.initializeAutoTrack();
       await this.startObserving();
       this.isInitialized = true;
       logger.debug('Video detector initialized');
+
+      // Listen for auto-track setting changes
+      chrome.runtime.onMessage.addListener((message) => {
+        if (message.type === 'AUTO_TRACK_CHANGED') {
+          logger.debug('Auto-track setting changed:', message.enabled);
+          this.autoTrackEnabled = message.enabled;
+          // Reinitialize controls if needed
+          if (this.controls) {
+            this.controls.destroy();
+            this.controls = null;
+            this.checkForPlayer();
+          }
+        }
+      });
     } catch (error) {
       logger.error('Failed to initialize video detector:', error);
       this.destroy();
@@ -128,11 +161,18 @@ export class VideoDetector {
         return;
       }
 
+      // Check if URL is from a supported site
+      const url = window.location.href;
+      if (!isSupportedSite(url)) {
+        logger.debug('URL is not from a supported site:', url);
+        return;
+      }
+
       // Initialize controls if not already done
       if (!this.controls) {
         logger.debug('Player found, initializing controls');
         this.controls = await VideoControls.getInstance(this.tabId);
-        await this.controls.initialize();
+        await this.controls.initialize(this.autoTrackEnabled);
         
         // Stop observing once controls are initialized
         this.stopObserving();

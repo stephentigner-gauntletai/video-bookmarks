@@ -34,20 +34,20 @@
 - [x] Add loading/error states
 
 ### 5. Auto-Track Detection
-- [ ] Add `SupportedSite` enum
-- [ ] Implement `isSupportedSite` helper
-- [ ] Update `handleVideoDetected` logic
-- [ ] Add automatic tracking initialization
-- [ ] Implement URL validation
-- [ ] Add debug logging
+- [x] Add `SupportedSite` enum
+- [x] Implement `isSupportedSite` helper
+- [x] Update `handleVideoDetected` logic
+- [x] Add automatic tracking initialization
+- [x] Implement URL validation
+- [x] Add debug logging
 
 ### 6. Content Script UI
-- [ ] Create auto-track indicator component
-- [ ] Update video controls UI
-- [ ] Add tracking status display
-- [ ] Implement UI state management
-- [ ] Add transition animations
-- [ ] Update styles for auto-track mode
+- [x] Create auto-track indicator component
+- [x] Update video controls UI
+- [x] Add tracking status display
+- [x] Implement UI state management
+- [x] Add transition animations
+- [x] Update styles for auto-track mode
 
 ## Phase 3: Integration
 

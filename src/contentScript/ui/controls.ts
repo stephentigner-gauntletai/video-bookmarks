@@ -15,6 +15,7 @@ interface ControlsConfig {
   savingClass: string;    // Class name for saving state
   errorClass: string;     // Class name for error state
   deletingClass: string;  // Class name for deleting state
+  autoTrackClass: string; // Class name for auto-track state
   undoTimeout: number;    // Time in ms before deletion is confirmed
 }
 
@@ -28,6 +29,7 @@ const DEFAULT_CONFIG: ControlsConfig = {
   savingClass: 'vb-saving',
   errorClass: 'vb-error',
   deletingClass: 'vb-deleting',
+  autoTrackClass: 'vb-auto-track',
   undoTimeout: 5000  // 5 seconds for undo
 };
 
@@ -46,9 +48,10 @@ export class VideoControls {
   private videoId: string | null = null;
   private isActive: boolean = false;
   private isSaving: boolean = false;
+  private isAutoTracking: boolean = false;
   private eventMonitor: VideoEventMonitor | null = null;
   private undoTimer: number | null = null;
-  private countdownInterval: number | null = null;  // Add tracking for countdown interval
+  private countdownInterval: number | null = null;
 
   private constructor(tabId: number, config: Partial<ControlsConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -79,7 +82,7 @@ export class VideoControls {
   /**
    * Initialize the controls
    */
-  public async initialize(): Promise<void> {
+  public async initialize(autoTrack: boolean = false): Promise<void> {
     try {
       logger.debug('Starting UI controls initialization');
       
@@ -98,6 +101,7 @@ export class VideoControls {
       }
 
       this.videoId = videoData.id;
+      this.isAutoTracking = autoTrack;
 
       // Create and inject controls
       logger.debug('Creating UI controls');
@@ -113,6 +117,12 @@ export class VideoControls {
 
       // Setup message listener for deletion events
       this.setupMessageListener();
+
+      // If auto-tracking is enabled, activate immediately
+      if (this.isAutoTracking) {
+        logger.debug('Auto-tracking enabled, activating bookmark');
+        await this.activateBookmark();
+      }
 
       logger.info('UI controls initialization complete');
     } catch (error) {
@@ -214,7 +224,7 @@ export class VideoControls {
       padding: 0;
       width: 48px;
       height: 48px;
-      display: flex;
+      display: ${this.isAutoTracking ? 'none' : 'flex'};
       align-items: center;
       justify-content: center;
       cursor: pointer;
@@ -253,19 +263,52 @@ export class VideoControls {
     this.timestampDisplay = document.createElement('div');
     this.timestampDisplay.className = 'ytp-time-display';
     this.timestampDisplay.style.cssText = `
+      position: absolute;
+      left: 100%;
+      margin-left: 8px;
       color: #fff;
       font-size: 12px;
-      margin-left: 8px;
-      display: none;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      white-space: nowrap;
     `;
+
+    // Create auto-track indicator if needed
+    if (this.isAutoTracking) {
+      const autoTrackIndicator = document.createElement('div');
+      autoTrackIndicator.className = 'ytp-button';
+      autoTrackIndicator.style.cssText = `
+        border: none;
+        background: none;
+        padding: 0;
+        width: 48px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+      `;
+      autoTrackIndicator.innerHTML = `
+        <svg height="24" width="24" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15l-5-2.18L7 18V5h10v13z"/>
+          <path d="M12 7v5l4.25 2.52.77-1.28-3.52-2.09V7z"/>
+        </svg>
+      `;
+      this.container.appendChild(autoTrackIndicator);
+    }
 
     // Add elements to container
     this.container.appendChild(this.bookmarkButton);
     this.container.appendChild(this.undoButton);
     this.container.appendChild(this.timestampDisplay);
 
-    // Try to inject the controls into the YouTube player
+    // Inject controls into the player
     this.injectControls();
+
+    // Set initial state
+    if (this.isAutoTracking) {
+      this.container.classList.add(this.config.autoTrackClass);
+    }
   }
 
   /**
@@ -627,6 +670,26 @@ export class VideoControls {
   private setError(error: boolean): void {
     if (this.container) {
       this.container.classList.toggle(this.config.errorClass, error);
+    }
+  }
+
+  /**
+   * Set auto-tracking state
+   */
+  private setAutoTracking(enabled: boolean): void {
+    this.isAutoTracking = enabled;
+    if (this.container) {
+      if (enabled) {
+        this.container.classList.add(this.config.autoTrackClass);
+        if (this.bookmarkButton) {
+          this.bookmarkButton.style.display = 'none';
+        }
+      } else {
+        this.container.classList.remove(this.config.autoTrackClass);
+        if (this.bookmarkButton) {
+          this.bookmarkButton.style.display = 'flex';
+        }
+      }
     }
   }
 }
