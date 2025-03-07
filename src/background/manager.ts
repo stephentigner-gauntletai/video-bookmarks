@@ -92,9 +92,54 @@ export class BackgroundManager {
     // Handle settings changes
     if (changes.settings) {
       const newSettings = changes.settings.newValue;
-      if (newSettings && typeof newSettings.autoTrack === 'boolean') {
-        this.state.autoTrackEnabled = newSettings.autoTrack;
-        console.debug('[Video Bookmarks] Auto-track setting changed:', this.state.autoTrackEnabled);
+      const oldSettings = changes.settings.oldValue;
+
+      // Only handle auto-track changes
+      if (newSettings && typeof newSettings.autoTrack === 'boolean' && 
+          (!oldSettings || newSettings.autoTrack !== oldSettings.autoTrack)) {
+        try {
+          // Update internal state
+          this.state.autoTrackEnabled = newSettings.autoTrack;
+          console.debug('[Video Bookmarks] Auto-track setting changed:', {
+            from: oldSettings?.autoTrack,
+            to: newSettings.autoTrack
+          });
+
+          // Find all YouTube tabs
+          const tabs = await chrome.tabs.query({ url: ['*://*.youtube.com/*', '*://youtube.com/*'] });
+
+          // Broadcast change to all YouTube tabs
+          for (const tab of tabs) {
+            if (tab.id) {
+              try {
+                await chrome.tabs.sendMessage(tab.id, {
+                  type: BackgroundMessageType.AUTO_TRACK_CHANGED,
+                  enabled: newSettings.autoTrack
+                });
+                console.debug('[Video Bookmarks] Notified tab of auto-track change:', tab.id);
+              } catch (error) {
+                // Individual tab errors shouldn't stop the process
+                console.warn('[Video Bookmarks] Failed to notify tab:', { tabId: tab.id, error });
+              }
+            }
+          }
+
+          // Update active videos
+          for (const [tabId, activeVideo] of this.state.activeVideos.entries()) {
+            activeVideo.autoTracked = newSettings.autoTrack;
+            // Save state to persist the change
+            await this.saveVideoState(activeVideo);
+          }
+        } catch (error) {
+          console.error('[Video Bookmarks] Failed to handle settings change:', error);
+          // Try to recover state
+          try {
+            const settings = await storageManager.getAutoTrackSettings();
+            this.state.autoTrackEnabled = settings.enabled;
+          } catch (recoveryError) {
+            console.error('[Video Bookmarks] Failed to recover settings state:', recoveryError);
+          }
+        }
       }
     }
   }
