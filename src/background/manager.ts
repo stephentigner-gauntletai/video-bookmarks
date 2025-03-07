@@ -417,10 +417,7 @@ export class BackgroundManager {
       title: message.title || (existingVideo?.title || ''),  // Fallback to existing title
       author: message.author || (existingVideo?.author || ''),  // Fallback to existing author
       lastTimestamp: message.lastTimestamp ?? existingVideo?.lastTimestamp ?? 0,
-      maxTimestamp: Math.max(  // Keep highest maxTimestamp
-        message.maxTimestamp ?? 0,
-        existingVideo?.maxTimestamp ?? 0
-      ),
+      maxTimestamp: existingVideo?.maxTimestamp ?? 0,  // Only use existing maxTimestamp, ignore message
       lastUpdate: Date.now(),
       autoTracked: this.state.autoTrackEnabled
     };
@@ -439,7 +436,8 @@ export class BackgroundManager {
     console.debug('[Video Bookmarks] Video detected:', {
       previousId: existingVideo?.id,
       newVideo: activeVideo,
-      hadExistingData: !!existingVideo
+      hadExistingData: !!existingVideo,
+      keptExistingMaxTimestamp: existingVideo?.maxTimestamp !== undefined
     });
   }
 
@@ -467,8 +465,13 @@ export class BackgroundManager {
     // Always update lastTimestamp to current position
     activeVideo.lastTimestamp = message.timestamp;
 
-    // Only update maxTimestamp if we've watched further
-    if (message.isMaxTimestamp || message.timestamp > activeVideo.maxTimestamp) {
+    // Update maxTimestamp only if current timestamp is greater than our known max
+    if (message.timestamp > activeVideo.maxTimestamp) {
+      console.debug('[Video Bookmarks] Updating max timestamp:', {
+        videoId: message.videoId,
+        oldMax: activeVideo.maxTimestamp,
+        newMax: message.timestamp
+      });
       activeVideo.maxTimestamp = message.timestamp;
     }
 

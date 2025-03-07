@@ -116,20 +116,19 @@ export class VideoEventMonitor {
       return;
     }
 
-    // Update timestamps
+    // Update last timestamp
     this.lastTimestamp = currentTime;
-    if (currentTime > this.maxTimestamp) {
-      this.maxTimestamp = currentTime;
-    }
 
     // Record update time
     this.lastUpdateTime = Date.now();
 
-    // Send updates to background script
-    this.sendTimestampUpdate(videoData.id, currentTime, false);  // Current position
-    if (currentTime >= this.maxTimestamp) {
-      this.sendTimestampUpdate(videoData.id, this.maxTimestamp, true);  // Max position
-    }
+    // Send update to background script
+    chrome.runtime.sendMessage({
+      type: BackgroundMessageType.UPDATE_TIMESTAMP,
+      tabId: this.tabId,
+      videoId: videoData.id,
+      timestamp: currentTime
+    });
   }
 
   /**
@@ -146,29 +145,20 @@ export class VideoEventMonitor {
 
     switch (state) {
       case PlayerState.ENDED:
-        // Video ended, update max timestamp to duration
-        this.maxTimestamp = videoData.duration;
-        this.sendTimestampUpdate(videoData.id, videoData.duration, true);
+        // Video ended, send final timestamp
+        chrome.runtime.sendMessage({
+          type: BackgroundMessageType.UPDATE_TIMESTAMP,
+          tabId: this.tabId,
+          videoId: videoData.id,
+          timestamp: videoData.duration
+        });
         break;
 
       case PlayerState.PAUSED:
-        // Video paused, update timestamps immediately
+        // Video paused, update timestamp immediately
         const currentTime = await getCurrentTime(this.tabId);
         await this.handleTimeUpdate(currentTime);
         break;
     }
-  }
-
-  /**
-   * Send timestamp update to background script
-   */
-  private sendTimestampUpdate(videoId: string, timestamp: number, isMaxTimestamp: boolean): void {
-    chrome.runtime.sendMessage({
-      type: BackgroundMessageType.UPDATE_TIMESTAMP,
-      tabId: this.tabId,
-      videoId,
-      timestamp,
-      isMaxTimestamp
-    });
   }
 } 
