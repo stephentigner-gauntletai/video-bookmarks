@@ -2,21 +2,21 @@
 
 ## Phase 1: Foundation
 
-### Storage Schema Changes
+### 1. Storage Schema Changes
 - [ ] Update `StorageSettings` interface in `storage/types.ts`
 - [ ] Add `autoTrack` boolean field
 - [ ] Add schema version field
 - [ ] Update storage initialization code
 - [ ] Add type definitions for version migration
 
-### Settings Management
+### 2. Settings Management
 - [ ] Create `AutoTrackSettings` interface
 - [ ] Implement `getAutoTrackSettings` function
 - [ ] Implement `setAutoTrackSettings` function
 - [ ] Add settings validation utilities
 - [ ] Add default settings values
 
-### Background State Extension
+### 3. Background State Extension
 - [ ] Add `autoTrackEnabled` to `BackgroundState` interface
 - [ ] Update `BackgroundManager` initialization
 - [ ] Add state update methods
@@ -25,7 +25,7 @@
 
 ## Phase 2: Core Logic
 
-### Settings UI in Popup
+### 4. Settings UI in Popup
 - [ ] Create `SettingsSection` component
 - [ ] Add toggle switch component
 - [ ] Implement settings persistence
@@ -33,7 +33,7 @@
 - [ ] Style the settings UI
 - [ ] Add loading/error states
 
-### Auto-Track Detection
+### 5. Auto-Track Detection
 - [ ] Add `SupportedSite` enum
 - [ ] Implement `isSupportedSite` helper
 - [ ] Update `handleVideoDetected` logic
@@ -41,7 +41,7 @@
 - [ ] Implement URL validation
 - [ ] Add debug logging
 
-### Content Script UI
+### 6. Content Script UI
 - [ ] Create auto-track indicator component
 - [ ] Update video controls UI
 - [ ] Add tracking status display
@@ -51,7 +51,7 @@
 
 ## Phase 3: Integration
 
-### Settings Change Handler
+### 7. Settings Change Handler
 - [ ] Implement settings change listener
 - [ ] Add message types for settings updates
 - [ ] Create settings sync mechanism
@@ -59,7 +59,7 @@
 - [ ] Implement retry logic
 - [ ] Add change notifications
 
-### Runtime Mode Switching
+### 8. Runtime Mode Switching
 - [ ] Implement mode transition logic
 - [ ] Add state preservation code
 - [ ] Create cleanup procedures
@@ -69,35 +69,35 @@
 
 ## Phase 4: Quality Assurance
 
-### Testing Setup
+### 9. Testing Setup
 - [ ] Create test configuration
 - [ ] Set up test environment
 - [ ] Add test utilities
 - [ ] Create mock data
 - [ ] Set up test YouTube accounts
 
-### Unit Tests
+### 10. Unit Tests
 - [ ] Test storage operations
 - [ ] Test settings management
 - [ ] Test state transitions
 - [ ] Test UI components
 - [ ] Test message handling
 
-### Integration Tests
+### 11. Integration Tests
 - [ ] Test end-to-end workflows
 - [ ] Test mode switching
 - [ ] Test persistence
 - [ ] Test error recovery
 - [ ] Test performance
 
-### Edge Cases
+### 12. Edge Cases
 - [ ] Test network failures
 - [ ] Test concurrent operations
 - [ ] Test storage limits
 - [ ] Test invalid states
 - [ ] Test migration paths
 
-### Migration
+### 13. Migration
 - [ ] Create migration utilities
 - [ ] Add version checks
 - [ ] Implement data conversion
@@ -106,14 +106,14 @@
 
 ## Final Steps
 
-### Documentation
+### 14. Documentation
 - [ ] Update README
 - [ ] Add API documentation
 - [ ] Document settings
 - [ ] Add troubleshooting guide
 - [ ] Update changelog
 
-### Release Preparation
+### 15. Release Preparation
 - [ ] Run final tests
 - [ ] Update version number
 - [ ] Generate production build
