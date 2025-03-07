@@ -26,12 +26,12 @@
 ## Phase 2: Core Logic
 
 ### 4. Settings UI in Popup
-- [ ] Create `SettingsSection` component
-- [ ] Add toggle switch component
-- [ ] Implement settings persistence
-- [ ] Add help text and tooltips
-- [ ] Style the settings UI
-- [ ] Add loading/error states
+- [x] Create `SettingsSection` component
+- [x] Add toggle switch component
+- [x] Implement settings persistence
+- [x] Add help text and tooltips
+- [x] Style the settings UI
+- [x] Add loading/error states
 
 ### 5. Auto-Track Detection
 - [ ] Add `SupportedSite` enum
