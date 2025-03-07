@@ -98,49 +98,137 @@ export class BackgroundManager {
       if (newSettings && typeof newSettings.autoTrack === 'boolean' && 
           (!oldSettings || newSettings.autoTrack !== oldSettings.autoTrack)) {
         try {
-          // Update internal state
-          this.state.autoTrackEnabled = newSettings.autoTrack;
-          console.debug('[Video Bookmarks] Auto-track setting changed:', {
-            from: oldSettings?.autoTrack,
-            to: newSettings.autoTrack
-          });
-
-          // Find all YouTube tabs
-          const tabs = await chrome.tabs.query({ url: ['*://*.youtube.com/*', '*://youtube.com/*'] });
-
-          // Broadcast change to all YouTube tabs
-          for (const tab of tabs) {
-            if (tab.id) {
-              try {
-                await chrome.tabs.sendMessage(tab.id, {
-                  type: BackgroundMessageType.AUTO_TRACK_CHANGED,
-                  enabled: newSettings.autoTrack
-                });
-                console.debug('[Video Bookmarks] Notified tab of auto-track change:', tab.id);
-              } catch (error) {
-                // Individual tab errors shouldn't stop the process
-                console.warn('[Video Bookmarks] Failed to notify tab:', { tabId: tab.id, error });
-              }
-            }
-          }
-
-          // Update active videos
-          for (const [tabId, activeVideo] of this.state.activeVideos.entries()) {
-            activeVideo.autoTracked = newSettings.autoTrack;
-            // Save state to persist the change
-            await this.saveVideoState(activeVideo);
-          }
+          await this.handleModeTransition(oldSettings?.autoTrack ?? false, newSettings.autoTrack);
         } catch (error) {
-          console.error('[Video Bookmarks] Failed to handle settings change:', error);
+          console.error('[Video Bookmarks] Failed to handle mode transition:', error);
           // Try to recover state
           try {
             const settings = await storageManager.getAutoTrackSettings();
-            this.state.autoTrackEnabled = settings.enabled;
+            await this.recoverState(settings.enabled);
           } catch (recoveryError) {
-            console.error('[Video Bookmarks] Failed to recover settings state:', recoveryError);
+            console.error('[Video Bookmarks] Failed to recover state:', recoveryError);
           }
         }
       }
+    }
+  }
+
+  /**
+   * Handle transition between auto-track modes
+   */
+  private async handleModeTransition(oldMode: boolean, newMode: boolean): Promise<void> {
+    console.debug('[Video Bookmarks] Mode transition:', { from: oldMode, to: newMode });
+
+    try {
+      // Update internal state
+      this.state.autoTrackEnabled = newMode;
+
+      // Find all YouTube tabs
+      const tabs = await chrome.tabs.query({ url: ['*://*.youtube.com/*', '*://youtube.com/*'] });
+
+      // Save state of all active videos before transition
+      const activeVideoStates = new Map(this.state.activeVideos);
+      
+      // Handle transition based on mode change
+      if (newMode) {
+        // Transitioning to auto-track mode
+        console.debug('[Video Bookmarks] Transitioning to auto-track mode');
+        
+        // Update existing active videos
+        for (const [tabId, activeVideo] of this.state.activeVideos.entries()) {
+          activeVideo.autoTracked = true;
+          await this.saveVideoState(activeVideo);
+        }
+      } else {
+        // Transitioning to manual mode
+        console.debug('[Video Bookmarks] Transitioning to manual mode');
+        
+        // Update existing active videos
+        for (const [tabId, activeVideo] of this.state.activeVideos.entries()) {
+          activeVideo.autoTracked = false;
+          await this.saveVideoState(activeVideo);
+        }
+      }
+
+      // Broadcast change to all YouTube tabs
+      for (const tab of tabs) {
+        if (tab.id) {
+          try {
+            await chrome.tabs.sendMessage(tab.id, {
+              type: BackgroundMessageType.AUTO_TRACK_CHANGED,
+              enabled: newMode
+            });
+            console.debug('[Video Bookmarks] Notified tab of mode change:', tab.id);
+          } catch (error) {
+            console.warn('[Video Bookmarks] Failed to notify tab:', { tabId: tab.id, error });
+            // Try to recover the tab's state
+            const activeVideo = activeVideoStates.get(tab.id);
+            if (activeVideo) {
+              await this.recoverTabState(tab.id, activeVideo);
+            }
+          }
+        }
+      }
+
+      console.debug('[Video Bookmarks] Mode transition completed');
+    } catch (error) {
+      console.error('[Video Bookmarks] Mode transition failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Recover state after a failure
+   */
+  private async recoverState(targetMode: boolean): Promise<void> {
+    console.debug('[Video Bookmarks] Attempting state recovery:', { targetMode });
+
+    try {
+      // Reset internal state
+      this.state.autoTrackEnabled = targetMode;
+
+      // Find all YouTube tabs
+      const tabs = await chrome.tabs.query({ url: ['*://*.youtube.com/*', '*://youtube.com/*'] });
+
+      // Attempt to recover each tab's state
+      for (const tab of tabs) {
+        if (tab.id) {
+          const activeVideo = this.state.activeVideos.get(tab.id);
+          if (activeVideo) {
+            await this.recoverTabState(tab.id, activeVideo);
+          }
+        }
+      }
+
+      console.debug('[Video Bookmarks] State recovery completed');
+    } catch (error) {
+      console.error('[Video Bookmarks] State recovery failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Recover a single tab's state
+   */
+  private async recoverTabState(tabId: number, activeVideo: ActiveVideo): Promise<void> {
+    console.debug('[Video Bookmarks] Recovering tab state:', { tabId, activeVideo });
+
+    try {
+      // Update active video state
+      activeVideo.autoTracked = this.state.autoTrackEnabled;
+      await this.saveVideoState(activeVideo);
+
+      // Try to notify the tab
+      await chrome.tabs.sendMessage(tabId, {
+        type: BackgroundMessageType.AUTO_TRACK_CHANGED,
+        enabled: this.state.autoTrackEnabled
+      });
+
+      console.debug('[Video Bookmarks] Tab state recovered:', tabId);
+    } catch (error) {
+      console.error('[Video Bookmarks] Failed to recover tab state:', { tabId, error });
+      // If we can't recover the tab state, remove it from active videos
+      this.state.activeVideos.delete(tabId);
     }
   }
 
