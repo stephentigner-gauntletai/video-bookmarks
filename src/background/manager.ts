@@ -203,27 +203,33 @@ export class BackgroundManager {
    * Handle video detected message
    */
   private handleVideoDetected(message: VideoDetectedMessage): void {
-    // Get existing active video if any
-    const existingVideo = this.state.activeVideos.get(message.tabId);
+    // Get existing active video if any and determine if we should use it
+    let existingVideo = this.state.activeVideos.get(message.tabId);
+    
+    // If there's an existing video with a different ID, save and clear it first
+    if (existingVideo && existingVideo.id !== message.videoId) {
+      this.saveVideoState(existingVideo);
+      this.state.activeVideos.delete(message.tabId);
+      existingVideo = undefined;
+    }
 
     // Create or update active video
     const activeVideo: ActiveVideo = {
       id: message.videoId,
       tabId: message.tabId,
       url: message.url,
-      // Preserve existing metadata if new values are empty
       title: message.title || existingVideo?.title || '',
       author: message.author || existingVideo?.author || '',
-      lastTimestamp: message.lastTimestamp ?? existingVideo?.lastTimestamp ?? 0,
-      maxTimestamp: message.maxTimestamp ?? existingVideo?.maxTimestamp ?? 0,
+      // Only use provided timestamps or start from 0, don't preserve old timestamps
+      lastTimestamp: message.lastTimestamp ?? 0,
+      maxTimestamp: message.maxTimestamp ?? 0,
       lastUpdate: Date.now()
     };
 
     // Only update if we have valid metadata
     if (!activeVideo.title || !activeVideo.author) {
-      console.warn('[Video Bookmarks] Received empty metadata, preserving existing state:', {
-        received: { title: message.title, author: message.author },
-        preserved: { title: existingVideo?.title, author: existingVideo?.author }
+      console.warn('[Video Bookmarks] Received empty metadata:', {
+        received: { title: message.title, author: message.author }
       });
       return;
     }
@@ -306,13 +312,14 @@ export class BackgroundManager {
    * Handle tab updated event
    */
   private handleTabUpdated(tabId: number, changeInfo: chrome.tabs.TabChangeInfo): void {
-    // Save state when tab is refreshed or URL changes
+    // Save state and clear when tab is refreshed or URL changes
     if (changeInfo.status === 'loading') {
       const activeVideo = this.state.activeVideos.get(tabId);
       if (activeVideo) {
         console.debug('[Video Bookmarks] Tab updated, saving video state:', activeVideo.id);
         this.saveVideoState(activeVideo);
-        // Don't delete from activeVideos here as the video might be reloaded
+        // Clear the active video when URL changes
+        this.state.activeVideos.delete(tabId);
       }
     }
   }
