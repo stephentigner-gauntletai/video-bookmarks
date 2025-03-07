@@ -1,7 +1,14 @@
-import { VideoBookmark, StorageKeys, StorageSchema, StorageError, StorageErrorType, SupportedSite } from './types';
+import { VideoBookmark, StorageKeys, StorageSchema, StorageError, StorageErrorType, SupportedSite, AutoTrackSettings } from './types';
 
 // Current schema version
 const CURRENT_SCHEMA_VERSION = 1;
+
+// Default settings values
+const DEFAULT_SETTINGS: StorageSchema[StorageKeys.SETTINGS] = {
+  autoTrack: false,
+  cleanupDays: 30,
+  supportedSites: [SupportedSite.YOUTUBE]
+};
 
 /**
  * Wrapper for chrome.storage.local operations with type safety and error handling
@@ -35,21 +42,15 @@ class StorageManager {
       }
 
       // Initialize or update settings
-      const defaultSettings: StorageSchema[StorageKeys.SETTINGS] = {
-        autoTrack: false,
-        cleanupDays: 30,
-        supportedSites: [SupportedSite.YOUTUBE]
-      };
-
       if (!storage[StorageKeys.SETTINGS]) {
-        updates[StorageKeys.SETTINGS] = defaultSettings;
+        updates[StorageKeys.SETTINGS] = DEFAULT_SETTINGS;
       } else if (!('supportedSites' in storage[StorageKeys.SETTINGS])) {
         // Update existing settings with new fields
         const currentSettings = storage[StorageKeys.SETTINGS] as Partial<StorageSchema[StorageKeys.SETTINGS]>;
         updates[StorageKeys.SETTINGS] = {
-          autoTrack: currentSettings.autoTrack ?? defaultSettings.autoTrack,
-          cleanupDays: currentSettings.cleanupDays ?? defaultSettings.cleanupDays,
-          supportedSites: defaultSettings.supportedSites
+          autoTrack: currentSettings.autoTrack ?? DEFAULT_SETTINGS.autoTrack,
+          cleanupDays: currentSettings.cleanupDays ?? DEFAULT_SETTINGS.cleanupDays,
+          supportedSites: DEFAULT_SETTINGS.supportedSites
         };
       }
 
@@ -257,6 +258,96 @@ class StorageManager {
         'Failed to update settings',
         error
       );
+    }
+  }
+
+  /**
+   * Get auto-track settings
+   */
+  public async getAutoTrackSettings(): Promise<AutoTrackSettings> {
+    try {
+      const storage = await this.getStorage();
+      const settings = storage[StorageKeys.SETTINGS];
+
+      if (!settings) {
+        return {
+          enabled: DEFAULT_SETTINGS.autoTrack,
+          supportedSites: DEFAULT_SETTINGS.supportedSites
+        };
+      }
+
+      return {
+        enabled: settings.autoTrack,
+        supportedSites: settings.supportedSites || DEFAULT_SETTINGS.supportedSites
+      };
+    } catch (error) {
+      throw new StorageError(
+        StorageErrorType.OPERATION_FAILED,
+        'Failed to get auto-track settings',
+        error
+      );
+    }
+  }
+
+  /**
+   * Update auto-track settings
+   */
+  public async setAutoTrackSettings(settings: AutoTrackSettings): Promise<void> {
+    try {
+      // Validate settings
+      this.validateAutoTrackSettings(settings);
+
+      const storage = await this.getStorage();
+      const currentSettings = storage[StorageKeys.SETTINGS] || DEFAULT_SETTINGS;
+
+      await chrome.storage.local.set({
+        [StorageKeys.SETTINGS]: {
+          ...currentSettings,
+          autoTrack: settings.enabled,
+          supportedSites: settings.supportedSites
+        }
+      });
+
+      console.debug('[Video Bookmarks] Auto-track settings updated:', settings);
+    } catch (error) {
+      if (error instanceof StorageError) {
+        throw error;
+      }
+      throw new StorageError(
+        StorageErrorType.OPERATION_FAILED,
+        'Failed to update auto-track settings',
+        error
+      );
+    }
+  }
+
+  /**
+   * Validate auto-track settings
+   */
+  private validateAutoTrackSettings(settings: AutoTrackSettings): void {
+    if (typeof settings.enabled !== 'boolean') {
+      throw new StorageError(
+        StorageErrorType.INVALID_DATA,
+        'Auto-track enabled setting must be a boolean'
+      );
+    }
+
+    if (!Array.isArray(settings.supportedSites)) {
+      throw new StorageError(
+        StorageErrorType.INVALID_DATA,
+        'Supported sites must be an array'
+      );
+    }
+
+    // Validate each site is a valid SupportedSite enum value
+    const validSites = Object.values(SupportedSite);
+    for (const site of settings.supportedSites) {
+      if (!validSites.includes(site)) {
+        throw new StorageError(
+          StorageErrorType.INVALID_DATA,
+          `Invalid supported site: ${site}`
+        );
+      }
     }
   }
 }
