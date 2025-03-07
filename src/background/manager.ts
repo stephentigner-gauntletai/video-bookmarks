@@ -382,7 +382,7 @@ export class BackgroundManager {
   /**
    * Handle video detected message
    */
-  private handleVideoDetected(message: VideoDetectedMessage): void {
+  private async handleVideoDetected(message: VideoDetectedMessage): Promise<void> {
     // Validate video ID from URL
     const urlVideoId = extractVideoId(message.url);
     if (!urlVideoId || urlVideoId !== message.videoId) {
@@ -409,6 +409,26 @@ export class BackgroundManager {
       existingVideo = undefined;
     }
 
+    // If no active video exists, check storage for an existing bookmark
+    let storedMaxTimestamp = 0;
+    if (!existingVideo) {
+      try {
+        const bookmark = await storageManager.getBookmark(message.videoId);
+        if (bookmark) {
+          storedMaxTimestamp = bookmark.maxTimestamp;
+          console.debug('[Video Bookmarks] Found stored bookmark:', {
+            videoId: message.videoId,
+            maxTimestamp: storedMaxTimestamp
+          });
+        }
+      } catch (error) {
+        // Bookmark not found is expected
+        if (error instanceof StorageError && error.type !== 'NOT_FOUND') {
+          console.error('[Video Bookmarks] Error checking stored bookmark:', error);
+        }
+      }
+    }
+
     // Create or update active video
     const activeVideo: ActiveVideo = {
       id: message.videoId,
@@ -417,7 +437,7 @@ export class BackgroundManager {
       title: message.title || (existingVideo?.title || ''),  // Fallback to existing title
       author: message.author || (existingVideo?.author || ''),  // Fallback to existing author
       lastTimestamp: message.lastTimestamp ?? existingVideo?.lastTimestamp ?? 0,
-      maxTimestamp: existingVideo?.maxTimestamp ?? 0,  // Only use existing maxTimestamp, ignore message
+      maxTimestamp: existingVideo?.maxTimestamp ?? storedMaxTimestamp,  // Use stored maxTimestamp if no active video
       lastUpdate: Date.now(),
       autoTracked: this.state.autoTrackEnabled
     };
@@ -437,7 +457,8 @@ export class BackgroundManager {
       previousId: existingVideo?.id,
       newVideo: activeVideo,
       hadExistingData: !!existingVideo,
-      keptExistingMaxTimestamp: existingVideo?.maxTimestamp !== undefined
+      hadStoredBookmark: storedMaxTimestamp > 0,
+      usedMaxTimestamp: activeVideo.maxTimestamp
     });
   }
 
