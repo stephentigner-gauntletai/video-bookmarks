@@ -3,11 +3,11 @@
 ## Phase 1: Foundation
 
 ### 1. Storage Schema Changes
-- [ ] Update `StorageSettings` interface in `storage/types.ts`
-- [ ] Add `autoTrack` boolean field
-- [ ] Add schema version field
-- [ ] Update storage initialization code
-- [ ] Add type definitions for version migration
+- [x] Update `StorageSettings` interface in `storage/types.ts`
+- [x] Add `autoTrack` boolean field
+- [x] Add schema version field
+- [x] Update storage initialization code
+- [x] Add type definitions for version migration
 
 ### 2. Settings Management
 - [ ] Create `AutoTrackSettings` interface

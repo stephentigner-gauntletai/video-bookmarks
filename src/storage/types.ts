@@ -17,7 +17,23 @@ export interface VideoBookmark {
  */
 export enum StorageKeys {
   BOOKMARKS = 'bookmarks',
-  SETTINGS = 'settings'
+  SETTINGS = 'settings',
+  SCHEMA_VERSION = 'schemaVersion'
+}
+
+/**
+ * Supported sites for auto-tracking
+ */
+export enum SupportedSite {
+  YOUTUBE = 'youtube'
+}
+
+/**
+ * Settings for auto-tracking feature
+ */
+export interface AutoTrackSettings {
+  enabled: boolean;
+  supportedSites: SupportedSite[];
 }
 
 /**
@@ -30,7 +46,9 @@ export interface StorageSchema {
   [StorageKeys.SETTINGS]: {
     autoTrack: boolean;  // Whether to automatically track video progress
     cleanupDays: number; // Number of days after which to clean up old bookmarks
+    supportedSites: SupportedSite[]; // Sites enabled for auto-tracking
   };
+  [StorageKeys.SCHEMA_VERSION]: number; // Current schema version
 }
 
 /**

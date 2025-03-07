@@ -1,4 +1,7 @@
-import { VideoBookmark, StorageKeys, StorageSchema, StorageError, StorageErrorType } from './types';
+import { VideoBookmark, StorageKeys, StorageSchema, StorageError, StorageErrorType, SupportedSite } from './types';
+
+// Current schema version
+const CURRENT_SCHEMA_VERSION = 1;
 
 /**
  * Wrapper for chrome.storage.local operations with type safety and error handling
@@ -26,15 +29,35 @@ class StorageManager {
       const storage = await this.getStorage();
       const updates: Partial<StorageSchema> = {};
 
+      // Initialize bookmarks if not present
       if (!storage[StorageKeys.BOOKMARKS]) {
         updates[StorageKeys.BOOKMARKS] = {};
       }
 
+      // Initialize or update settings
+      const defaultSettings: StorageSchema[StorageKeys.SETTINGS] = {
+        autoTrack: false,
+        cleanupDays: 30,
+        supportedSites: [SupportedSite.YOUTUBE]
+      };
+
       if (!storage[StorageKeys.SETTINGS]) {
+        updates[StorageKeys.SETTINGS] = defaultSettings;
+      } else if (!('supportedSites' in storage[StorageKeys.SETTINGS])) {
+        // Update existing settings with new fields
+        const currentSettings = storage[StorageKeys.SETTINGS] as Partial<StorageSchema[StorageKeys.SETTINGS]>;
         updates[StorageKeys.SETTINGS] = {
-          autoTrack: true,
-          cleanupDays: 30
+          autoTrack: currentSettings.autoTrack ?? defaultSettings.autoTrack,
+          cleanupDays: currentSettings.cleanupDays ?? defaultSettings.cleanupDays,
+          supportedSites: defaultSettings.supportedSites
         };
+      }
+
+      // Initialize or update schema version
+      const currentVersion = storage[StorageKeys.SCHEMA_VERSION] || 0;
+      if (currentVersion < CURRENT_SCHEMA_VERSION) {
+        updates[StorageKeys.SCHEMA_VERSION] = CURRENT_SCHEMA_VERSION;
+        await this.migrateSchema(currentVersion, CURRENT_SCHEMA_VERSION, storage);
       }
 
       if (Object.keys(updates).length > 0) {
@@ -47,6 +70,19 @@ class StorageManager {
         error
       );
     }
+  }
+
+  /**
+   * Migrate schema from one version to another
+   */
+  private async migrateSchema(
+    fromVersion: number,
+    toVersion: number,
+    storage: Partial<StorageSchema>
+  ): Promise<void> {
+    // For now, we just have version 1, so no migration logic needed yet
+    // This will be implemented when we add new schema versions
+    console.debug('[Video Bookmarks] Schema migration:', { fromVersion, toVersion });
   }
 
   /**
