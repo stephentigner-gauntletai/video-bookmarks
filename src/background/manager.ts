@@ -1,5 +1,6 @@
 import { storageManager } from '../storage';
 import { VideoBookmark, StorageError } from '../storage/types';
+import { extractVideoId } from '../contentScript/utils';
 import {
   BackgroundState,
   ActiveVideo,
@@ -382,12 +383,28 @@ export class BackgroundManager {
    * Handle video detected message
    */
   private handleVideoDetected(message: VideoDetectedMessage): void {
-    // Get existing active video if any and determine if we should use it
+    // Validate video ID from URL
+    const urlVideoId = extractVideoId(message.url);
+    if (!urlVideoId || urlVideoId !== message.videoId) {
+      console.warn('[Video Bookmarks] Video ID mismatch:', {
+        urlVideoId,
+        messageVideoId: message.videoId,
+        url: message.url
+      });
+      return;
+    }
+
+    // Get existing active video if any
     let existingVideo = this.state.activeVideos.get(message.tabId);
     
     // If there's an existing video with a different ID, save and clear it first
     if (existingVideo && existingVideo.id !== message.videoId) {
-      this.saveVideoState(existingVideo);
+      // Save the existing video with its own ID and data
+      const finalExistingVideo = {
+        ...existingVideo,
+        lastUpdate: Date.now()
+      };
+      this.saveVideoState(finalExistingVideo);
       this.state.activeVideos.delete(message.tabId);
       existingVideo = undefined;
     }
@@ -397,10 +414,13 @@ export class BackgroundManager {
       id: message.videoId,
       tabId: message.tabId,
       url: message.url,
-      title: message.title || existingVideo?.title || '',
-      author: message.author || existingVideo?.author || '',
-      lastTimestamp: message.lastTimestamp ?? 0,
-      maxTimestamp: message.maxTimestamp ?? 0,
+      title: message.title || (existingVideo?.title || ''),  // Fallback to existing title
+      author: message.author || (existingVideo?.author || ''),  // Fallback to existing author
+      lastTimestamp: message.lastTimestamp ?? existingVideo?.lastTimestamp ?? 0,
+      maxTimestamp: Math.max(  // Keep highest maxTimestamp
+        message.maxTimestamp ?? 0,
+        existingVideo?.maxTimestamp ?? 0
+      ),
       lastUpdate: Date.now(),
       autoTracked: this.state.autoTrackEnabled
     };
@@ -408,14 +428,19 @@ export class BackgroundManager {
     // Only update if we have valid metadata
     if (!activeVideo.title || !activeVideo.author) {
       console.warn('[Video Bookmarks] Received empty metadata:', {
-        received: { title: message.title, author: message.author }
+        received: { title: message.title, author: message.author },
+        existing: { title: existingVideo?.title, author: existingVideo?.author }
       });
       return;
     }
 
     // Add to active videos
     this.state.activeVideos.set(message.tabId, activeVideo);
-    console.debug('[Video Bookmarks] Video detected:', activeVideo);
+    console.debug('[Video Bookmarks] Video detected:', {
+      previousId: existingVideo?.id,
+      newVideo: activeVideo,
+      hadExistingData: !!existingVideo
+    });
   }
 
   /**
