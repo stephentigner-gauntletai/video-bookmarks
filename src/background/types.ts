@@ -13,6 +13,7 @@ export interface ActiveVideo {
   maxTimestamp: number;
   lastUpdate: number;
   pendingDeletion?: boolean;  // Whether the video is pending deletion
+  autoTracked?: boolean;      // Whether this video is being auto-tracked
 }
 
 /**
@@ -21,6 +22,7 @@ export interface ActiveVideo {
 export interface BackgroundState {
   activeVideos: Map<number, ActiveVideo>;  // tabId -> ActiveVideo
   isInitialized: boolean;
+  autoTrackEnabled: boolean;  // Whether auto-tracking is enabled globally
 }
 
 /**
@@ -40,7 +42,8 @@ export enum BackgroundMessageType {
   INJECT_STYLES = 'INJECT_STYLES',
   INITIATE_DELETE = 'INITIATE_DELETE',
   UNDO_DELETE = 'UNDO_DELETE',
-  CONFIRM_DELETE = 'CONFIRM_DELETE'
+  CONFIRM_DELETE = 'CONFIRM_DELETE',
+  AUTO_TRACK_CHANGED = 'AUTO_TRACK_CHANGED'  // New message type for auto-track changes
 }
 
 /**
@@ -86,6 +89,7 @@ export interface UpdateTimestampMessage extends TabBackgroundMessage {
   videoId: string;
   timestamp: number;
   isMaxTimestamp: boolean;
+  source: 'controls' | 'events' | 'state_change';  // Where the update is coming from
 }
 
 /**
@@ -178,6 +182,14 @@ export interface ConfirmDeleteMessage extends TabBackgroundMessage {
 }
 
 /**
+ * Message sent when auto-track setting changes
+ */
+export interface AutoTrackChangedMessage extends BackgroundMessageBase {
+  type: BackgroundMessageType.AUTO_TRACK_CHANGED;
+  enabled: boolean;
+}
+
+/**
  * Union type of all possible background messages
  */
 export type BackgroundMessageUnion = 
@@ -194,4 +206,5 @@ export type BackgroundMessageUnion =
   | InjectStylesMessage
   | InitiateDeleteMessage
   | UndoDeleteMessage
-  | ConfirmDeleteMessage; 
+  | ConfirmDeleteMessage
+  | AutoTrackChangedMessage; 

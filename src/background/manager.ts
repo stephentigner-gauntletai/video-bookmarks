@@ -1,5 +1,6 @@
 import { storageManager } from '../storage';
 import { VideoBookmark, StorageError } from '../storage/types';
+import { extractVideoId } from '../contentScript/utils';
 import {
   BackgroundState,
   ActiveVideo,
@@ -12,7 +13,8 @@ import {
   GetVideoStateMessage,
   InitiateDeleteMessage,
   UndoDeleteMessage,
-  ConfirmDeleteMessage
+  ConfirmDeleteMessage,
+  AutoTrackChangedMessage
 } from './types';
 import { handlePlayerProxyMessage } from './playerProxy';
 
@@ -23,7 +25,8 @@ export class BackgroundManager {
   private static instance: BackgroundManager;
   private state: BackgroundState = {
     activeVideos: new Map(),
-    isInitialized: false
+    isInitialized: false,
+    autoTrackEnabled: false
   };
   private saveInterval: number | null = null;
   private readonly SAVE_INTERVAL = 30000; // Save every 30 seconds
@@ -49,6 +52,10 @@ export class BackgroundManager {
     // Initialize storage
     await storageManager.initialize();
 
+    // Load auto-track settings
+    const settings = await storageManager.getAutoTrackSettings();
+    this.state.autoTrackEnabled = settings.enabled;
+
     // Setup message listeners
     chrome.runtime.onMessage.addListener(this.handleMessage.bind(this));
 
@@ -57,6 +64,9 @@ export class BackgroundManager {
 
     // Setup tab update listener
     chrome.tabs.onUpdated.addListener(this.handleTabUpdated.bind(this));
+
+    // Setup storage change listener
+    chrome.storage.onChanged.addListener(this.handleStorageChanged.bind(this));
 
     // Start periodic saves
     this.startPeriodicSaves();
@@ -69,6 +79,158 @@ export class BackgroundManager {
 
     this.state.isInitialized = true;
     console.log('[Video Bookmarks] Background manager initialized');
+  }
+
+  /**
+   * Handle storage changes
+   */
+  private async handleStorageChanged(
+    changes: { [key: string]: chrome.storage.StorageChange },
+    areaName: string
+  ): Promise<void> {
+    if (areaName !== 'local') return;
+
+    // Handle settings changes
+    if (changes.settings) {
+      const newSettings = changes.settings.newValue;
+      const oldSettings = changes.settings.oldValue;
+
+      // Only handle auto-track changes
+      if (newSettings && typeof newSettings.autoTrack === 'boolean' && 
+          (!oldSettings || newSettings.autoTrack !== oldSettings.autoTrack)) {
+        try {
+          await this.handleModeTransition(oldSettings?.autoTrack ?? false, newSettings.autoTrack);
+        } catch (error) {
+          console.error('[Video Bookmarks] Failed to handle mode transition:', error);
+          // Try to recover state
+          try {
+            const settings = await storageManager.getAutoTrackSettings();
+            await this.recoverState(settings.enabled);
+          } catch (recoveryError) {
+            console.error('[Video Bookmarks] Failed to recover state:', recoveryError);
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Handle transition between auto-track modes
+   */
+  private async handleModeTransition(oldMode: boolean, newMode: boolean): Promise<void> {
+    console.debug('[Video Bookmarks] Mode transition:', { from: oldMode, to: newMode });
+
+    try {
+      // Update internal state
+      this.state.autoTrackEnabled = newMode;
+
+      // Find all YouTube tabs
+      const tabs = await chrome.tabs.query({ url: ['*://*.youtube.com/*', '*://youtube.com/*'] });
+
+      // Save state of all active videos before transition
+      const activeVideoStates = new Map(this.state.activeVideos);
+      
+      // Handle transition based on mode change
+      if (newMode) {
+        // Transitioning to auto-track mode
+        console.debug('[Video Bookmarks] Transitioning to auto-track mode');
+        
+        // Update existing active videos
+        for (const [tabId, activeVideo] of this.state.activeVideos.entries()) {
+          activeVideo.autoTracked = true;
+          await this.saveVideoState(activeVideo);
+        }
+      } else {
+        // Transitioning to manual mode
+        console.debug('[Video Bookmarks] Transitioning to manual mode');
+        
+        // Update existing active videos
+        for (const [tabId, activeVideo] of this.state.activeVideos.entries()) {
+          activeVideo.autoTracked = false;
+          await this.saveVideoState(activeVideo);
+        }
+      }
+
+      // Broadcast change to all YouTube tabs
+      for (const tab of tabs) {
+        if (tab.id) {
+          try {
+            await chrome.tabs.sendMessage(tab.id, {
+              type: BackgroundMessageType.AUTO_TRACK_CHANGED,
+              enabled: newMode
+            });
+            console.debug('[Video Bookmarks] Notified tab of mode change:', tab.id);
+          } catch (error) {
+            console.warn('[Video Bookmarks] Failed to notify tab:', { tabId: tab.id, error });
+            // Try to recover the tab's state
+            const activeVideo = activeVideoStates.get(tab.id);
+            if (activeVideo) {
+              await this.recoverTabState(tab.id, activeVideo);
+            }
+          }
+        }
+      }
+
+      console.debug('[Video Bookmarks] Mode transition completed');
+    } catch (error) {
+      console.error('[Video Bookmarks] Mode transition failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Recover state after a failure
+   */
+  private async recoverState(targetMode: boolean): Promise<void> {
+    console.debug('[Video Bookmarks] Attempting state recovery:', { targetMode });
+
+    try {
+      // Reset internal state
+      this.state.autoTrackEnabled = targetMode;
+
+      // Find all YouTube tabs
+      const tabs = await chrome.tabs.query({ url: ['*://*.youtube.com/*', '*://youtube.com/*'] });
+
+      // Attempt to recover each tab's state
+      for (const tab of tabs) {
+        if (tab.id) {
+          const activeVideo = this.state.activeVideos.get(tab.id);
+          if (activeVideo) {
+            await this.recoverTabState(tab.id, activeVideo);
+          }
+        }
+      }
+
+      console.debug('[Video Bookmarks] State recovery completed');
+    } catch (error) {
+      console.error('[Video Bookmarks] State recovery failed:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Recover a single tab's state
+   */
+  private async recoverTabState(tabId: number, activeVideo: ActiveVideo): Promise<void> {
+    console.debug('[Video Bookmarks] Recovering tab state:', { tabId, activeVideo });
+
+    try {
+      // Update active video state
+      activeVideo.autoTracked = this.state.autoTrackEnabled;
+      await this.saveVideoState(activeVideo);
+
+      // Try to notify the tab
+      await chrome.tabs.sendMessage(tabId, {
+        type: BackgroundMessageType.AUTO_TRACK_CHANGED,
+        enabled: this.state.autoTrackEnabled
+      });
+
+      console.debug('[Video Bookmarks] Tab state recovered:', tabId);
+    } catch (error) {
+      console.error('[Video Bookmarks] Failed to recover tab state:', { tabId, error });
+      // If we can't recover the tab state, remove it from active videos
+      this.state.activeVideos.delete(tabId);
+    }
   }
 
   /**
@@ -110,7 +272,7 @@ export class BackgroundManager {
     sendResponse: (response?: any) => void
   ): boolean {
     try {
-      console.debug('[Video Bookmarks] Received message:', { message, sender });
+      console.debug('[Video Bookmarks] Received message:', message.type, { message, sender });
 
       // Special case for GET_TAB_ID message
       if (message.type === BackgroundMessageType.GET_TAB_ID) {
@@ -131,15 +293,33 @@ export class BackgroundManager {
         BackgroundMessageType.GET_PLAYER_STATE,
         BackgroundMessageType.GET_CURRENT_TIME
       ].includes(message.type)) {
-        handlePlayerProxyMessage(message, sendResponse);
+        // Ensure we have a valid tabId for player proxy messages
+        const tabId = sender.tab?.id;
+        if (typeof tabId !== 'number') {
+          console.error('[Video Bookmarks] Invalid tabId in player proxy message:', message);
+          return false;
+        }
+        handlePlayerProxyMessage({ ...message, tabId }, sendResponse);
         return true;
       }
 
       // Handle CSS injection
       if (message.type === BackgroundMessageType.INJECT_STYLES) {
-        this.injectStyles(message.tabId);
+        const tabId = sender.tab?.id;
+        if (typeof tabId !== 'number') {
+          console.error('[Video Bookmarks] Invalid tabId in inject styles message:', message);
+          return false;
+        }
+        this.injectStyles(tabId);
         sendResponse();
         return true;
+      }
+
+      // Handle auto-track changes
+      if (message.type === BackgroundMessageType.AUTO_TRACK_CHANGED) {
+        this.state.autoTrackEnabled = message.enabled;
+        console.debug('[Video Bookmarks] Auto-track changed:', message.enabled);
+        return false;
       }
 
       // Handle deletion messages from popup (these don't need a tabId)
@@ -202,15 +382,67 @@ export class BackgroundManager {
   /**
    * Handle video detected message
    */
-  private handleVideoDetected(message: VideoDetectedMessage): void {
-    // Get existing active video if any and determine if we should use it
+  private async handleVideoDetected(message: VideoDetectedMessage): Promise<void> {
+    // Validate video ID from URL
+    const urlVideoId = extractVideoId(message.url);
+    const hadVideoIdMismatch = urlVideoId && urlVideoId !== message.videoId;
+
+    if (!urlVideoId || urlVideoId !== message.videoId) {
+      console.debug('[Video Bookmarks] Video ID mismatch, clearing state:', {
+        urlVideoId,
+        messageVideoId: message.videoId,
+        url: message.url
+      });
+
+      // Get existing active video if any
+      const existingVideo = this.state.activeVideos.get(message.tabId);
+      if (existingVideo) {
+        // Save the existing video's state before clearing
+        const finalExistingVideo = {
+          ...existingVideo,
+          lastUpdate: Date.now()
+        };
+        await this.saveVideoState(finalExistingVideo);
+        this.state.activeVideos.delete(message.tabId);
+      }
+
+      // Continue with the new video ID from the URL
+      message.videoId = urlVideoId || message.videoId;
+    }
+
+    // Get existing active video if any (after potential clear)
     let existingVideo = this.state.activeVideos.get(message.tabId);
     
     // If there's an existing video with a different ID, save and clear it first
     if (existingVideo && existingVideo.id !== message.videoId) {
-      this.saveVideoState(existingVideo);
+      // Save the existing video with its own ID and data
+      const finalExistingVideo = {
+        ...existingVideo,
+        lastUpdate: Date.now()
+      };
+      await this.saveVideoState(finalExistingVideo);
       this.state.activeVideos.delete(message.tabId);
       existingVideo = undefined;
+    }
+
+    // If no active video exists, check storage for an existing bookmark
+    let storedMaxTimestamp = 0;
+    if (!existingVideo) {
+      try {
+        const bookmark = await storageManager.getBookmark(message.videoId);
+        if (bookmark) {
+          storedMaxTimestamp = bookmark.maxTimestamp;
+          console.debug('[Video Bookmarks] Found stored bookmark:', {
+            videoId: message.videoId,
+            maxTimestamp: storedMaxTimestamp
+          });
+        }
+      } catch (error) {
+        // Bookmark not found is expected
+        if (error instanceof StorageError && error.type !== 'NOT_FOUND') {
+          console.error('[Video Bookmarks] Error checking stored bookmark:', error);
+        }
+      }
     }
 
     // Create or update active video
@@ -218,25 +450,33 @@ export class BackgroundManager {
       id: message.videoId,
       tabId: message.tabId,
       url: message.url,
-      title: message.title || existingVideo?.title || '',
-      author: message.author || existingVideo?.author || '',
-      // Only use provided timestamps or start from 0, don't preserve old timestamps
-      lastTimestamp: message.lastTimestamp ?? 0,
-      maxTimestamp: message.maxTimestamp ?? 0,
-      lastUpdate: Date.now()
+      title: message.title || (existingVideo?.title || ''),  // Fallback to existing title
+      author: message.author || (existingVideo?.author || ''),  // Fallback to existing author
+      lastTimestamp: message.lastTimestamp ?? existingVideo?.lastTimestamp ?? 0,
+      maxTimestamp: existingVideo?.maxTimestamp ?? storedMaxTimestamp,  // Use stored maxTimestamp if no active video
+      lastUpdate: Date.now(),
+      autoTracked: this.state.autoTrackEnabled
     };
 
     // Only update if we have valid metadata
     if (!activeVideo.title || !activeVideo.author) {
       console.warn('[Video Bookmarks] Received empty metadata:', {
-        received: { title: message.title, author: message.author }
+        received: { title: message.title, author: message.author },
+        existing: { title: existingVideo?.title, author: existingVideo?.author }
       });
       return;
     }
 
     // Add to active videos
     this.state.activeVideos.set(message.tabId, activeVideo);
-    console.debug('[Video Bookmarks] Video detected:', activeVideo);
+    console.debug('[Video Bookmarks] Video detected:', {
+      previousId: existingVideo?.id,
+      newVideo: activeVideo,
+      hadExistingData: !!existingVideo,
+      hadStoredBookmark: storedMaxTimestamp > 0,
+      usedMaxTimestamp: activeVideo.maxTimestamp,
+      clearedDueToMismatch: hadVideoIdMismatch
+    });
   }
 
   /**
@@ -257,14 +497,28 @@ export class BackgroundManager {
   private async handleUpdateTimestamp(message: UpdateTimestampMessage): Promise<void> {
     const activeVideo = this.state.activeVideos.get(message.tabId);
     if (!activeVideo || activeVideo.id !== message.videoId) {
+      console.debug('[Video Bookmarks] Timestamp update ignored:', !activeVideo 
+        ? 'No active video for tab' 
+        : {
+          mismatch: true,
+          activeVideoId: activeVideo.id,
+          messageVideoId: message.videoId,
+          source: message.source
+        });
       return;
     }
 
     // Always update lastTimestamp to current position
     activeVideo.lastTimestamp = message.timestamp;
 
-    // Only update maxTimestamp if we've watched further
-    if (message.isMaxTimestamp || message.timestamp > activeVideo.maxTimestamp) {
+    // Update maxTimestamp only if current timestamp is greater than our known max
+    if (message.timestamp > activeVideo.maxTimestamp) {
+      console.debug('[Video Bookmarks] Updating max timestamp:', {
+        videoId: message.videoId,
+        oldMax: activeVideo.maxTimestamp,
+        newMax: message.timestamp,
+        source: message.source
+      });
       activeVideo.maxTimestamp = message.timestamp;
     }
 
@@ -320,6 +574,17 @@ export class BackgroundManager {
         this.saveVideoState(activeVideo);
         // Clear the active video when URL changes
         this.state.activeVideos.delete(tabId);
+
+        // Notify content script of tab update
+        try {
+          chrome.tabs.sendMessage(tabId, {
+            type: 'TAB_UPDATED',
+            tabId
+          });
+        } catch (error) {
+          console.debug('[Video Bookmarks] Failed to notify content script of tab update:', error);
+          // This is expected if the tab is being reloaded
+        }
       }
     }
   }

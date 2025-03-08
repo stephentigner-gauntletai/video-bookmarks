@@ -12,6 +12,14 @@ export function isYouTubeVideoPage(): boolean {
 }
 
 /**
+ * Check if a URL is from a supported site
+ */
+export function isSupportedSite(url: string): boolean {
+  // Currently only supporting YouTube
+  return url.includes('youtube.com/watch') || url.includes('youtu.be/');
+}
+
+/**
  * Extract video ID from YouTube URL
  * @returns video ID or null if not found
  */

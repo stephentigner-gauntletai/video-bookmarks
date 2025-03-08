@@ -1,4 +1,14 @@
-import { VideoBookmark, StorageKeys, StorageSchema, StorageError, StorageErrorType } from './types';
+import { VideoBookmark, StorageKeys, StorageSchema, StorageError, StorageErrorType, SupportedSite, AutoTrackSettings } from './types';
+
+// Current schema version
+const CURRENT_SCHEMA_VERSION = 1;
+
+// Default settings values
+const DEFAULT_SETTINGS: StorageSchema[StorageKeys.SETTINGS] = {
+  autoTrack: false,
+  cleanupDays: 30,
+  supportedSites: [SupportedSite.YOUTUBE]
+};
 
 /**
  * Wrapper for chrome.storage.local operations with type safety and error handling
@@ -26,15 +36,29 @@ class StorageManager {
       const storage = await this.getStorage();
       const updates: Partial<StorageSchema> = {};
 
+      // Initialize bookmarks if not present
       if (!storage[StorageKeys.BOOKMARKS]) {
         updates[StorageKeys.BOOKMARKS] = {};
       }
 
+      // Initialize or update settings
       if (!storage[StorageKeys.SETTINGS]) {
+        updates[StorageKeys.SETTINGS] = DEFAULT_SETTINGS;
+      } else if (!('supportedSites' in storage[StorageKeys.SETTINGS])) {
+        // Update existing settings with new fields
+        const currentSettings = storage[StorageKeys.SETTINGS] as Partial<StorageSchema[StorageKeys.SETTINGS]>;
         updates[StorageKeys.SETTINGS] = {
-          autoTrack: true,
-          cleanupDays: 30
+          autoTrack: currentSettings.autoTrack ?? DEFAULT_SETTINGS.autoTrack,
+          cleanupDays: currentSettings.cleanupDays ?? DEFAULT_SETTINGS.cleanupDays,
+          supportedSites: DEFAULT_SETTINGS.supportedSites
         };
+      }
+
+      // Initialize or update schema version
+      const currentVersion = storage[StorageKeys.SCHEMA_VERSION] || 0;
+      if (currentVersion < CURRENT_SCHEMA_VERSION) {
+        updates[StorageKeys.SCHEMA_VERSION] = CURRENT_SCHEMA_VERSION;
+        await this.migrateSchema(currentVersion, CURRENT_SCHEMA_VERSION, storage);
       }
 
       if (Object.keys(updates).length > 0) {
@@ -47,6 +71,19 @@ class StorageManager {
         error
       );
     }
+  }
+
+  /**
+   * Migrate schema from one version to another
+   */
+  private async migrateSchema(
+    fromVersion: number,
+    toVersion: number,
+    storage: Partial<StorageSchema>
+  ): Promise<void> {
+    // For now, we just have version 1, so no migration logic needed yet
+    // This will be implemented when we add new schema versions
+    console.debug('[Video Bookmarks] Schema migration:', { fromVersion, toVersion });
   }
 
   /**
@@ -221,6 +258,96 @@ class StorageManager {
         'Failed to update settings',
         error
       );
+    }
+  }
+
+  /**
+   * Get auto-track settings
+   */
+  public async getAutoTrackSettings(): Promise<AutoTrackSettings> {
+    try {
+      const storage = await this.getStorage();
+      const settings = storage[StorageKeys.SETTINGS];
+
+      if (!settings) {
+        return {
+          enabled: DEFAULT_SETTINGS.autoTrack,
+          supportedSites: DEFAULT_SETTINGS.supportedSites
+        };
+      }
+
+      return {
+        enabled: settings.autoTrack,
+        supportedSites: settings.supportedSites || DEFAULT_SETTINGS.supportedSites
+      };
+    } catch (error) {
+      throw new StorageError(
+        StorageErrorType.OPERATION_FAILED,
+        'Failed to get auto-track settings',
+        error
+      );
+    }
+  }
+
+  /**
+   * Update auto-track settings
+   */
+  public async setAutoTrackSettings(settings: AutoTrackSettings): Promise<void> {
+    try {
+      // Validate settings
+      this.validateAutoTrackSettings(settings);
+
+      const storage = await this.getStorage();
+      const currentSettings = storage[StorageKeys.SETTINGS] || DEFAULT_SETTINGS;
+
+      await chrome.storage.local.set({
+        [StorageKeys.SETTINGS]: {
+          ...currentSettings,
+          autoTrack: settings.enabled,
+          supportedSites: settings.supportedSites
+        }
+      });
+
+      console.debug('[Video Bookmarks] Auto-track settings updated:', settings);
+    } catch (error) {
+      if (error instanceof StorageError) {
+        throw error;
+      }
+      throw new StorageError(
+        StorageErrorType.OPERATION_FAILED,
+        'Failed to update auto-track settings',
+        error
+      );
+    }
+  }
+
+  /**
+   * Validate auto-track settings
+   */
+  private validateAutoTrackSettings(settings: AutoTrackSettings): void {
+    if (typeof settings.enabled !== 'boolean') {
+      throw new StorageError(
+        StorageErrorType.INVALID_DATA,
+        'Auto-track enabled setting must be a boolean'
+      );
+    }
+
+    if (!Array.isArray(settings.supportedSites)) {
+      throw new StorageError(
+        StorageErrorType.INVALID_DATA,
+        'Supported sites must be an array'
+      );
+    }
+
+    // Validate each site is a valid SupportedSite enum value
+    const validSites = Object.values(SupportedSite);
+    for (const site of settings.supportedSites) {
+      if (!validSites.includes(site)) {
+        throw new StorageError(
+          StorageErrorType.INVALID_DATA,
+          `Invalid supported site: ${site}`
+        );
+      }
     }
   }
 }

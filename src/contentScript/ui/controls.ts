@@ -15,6 +15,7 @@ interface ControlsConfig {
   savingClass: string;    // Class name for saving state
   errorClass: string;     // Class name for error state
   deletingClass: string;  // Class name for deleting state
+  autoTrackClass: string; // Class name for auto-track state
   undoTimeout: number;    // Time in ms before deletion is confirmed
 }
 
@@ -28,6 +29,7 @@ const DEFAULT_CONFIG: ControlsConfig = {
   savingClass: 'vb-saving',
   errorClass: 'vb-error',
   deletingClass: 'vb-deleting',
+  autoTrackClass: 'vb-auto-track',
   undoTimeout: 5000  // 5 seconds for undo
 };
 
@@ -46,9 +48,10 @@ export class VideoControls {
   private videoId: string | null = null;
   private isActive: boolean = false;
   private isSaving: boolean = false;
+  private isAutoTracking: boolean = false;
   private eventMonitor: VideoEventMonitor | null = null;
   private undoTimer: number | null = null;
-  private countdownInterval: number | null = null;  // Add tracking for countdown interval
+  private countdownInterval: number | null = null;
 
   private constructor(tabId: number, config: Partial<ControlsConfig> = {}) {
     this.config = { ...DEFAULT_CONFIG, ...config };
@@ -79,7 +82,7 @@ export class VideoControls {
   /**
    * Initialize the controls
    */
-  public async initialize(): Promise<void> {
+  public async initialize(autoTrack: boolean = false): Promise<void> {
     try {
       logger.debug('Starting UI controls initialization');
       
@@ -98,6 +101,7 @@ export class VideoControls {
       }
 
       this.videoId = videoData.id;
+      this.isAutoTracking = autoTrack;
 
       // Create and inject controls
       logger.debug('Creating UI controls');
@@ -107,12 +111,18 @@ export class VideoControls {
       logger.debug('Checking video state');
       await this.checkVideoState();
 
-      // Start timestamp updates
+      // Start timestamp updates if needed
       logger.debug('Starting timestamp updates');
-      this.startTimestampUpdates();
+      await this.startTimestampUpdates();
 
       // Setup message listener for deletion events
       this.setupMessageListener();
+
+      // If auto-tracking is enabled, activate immediately
+      if (this.isAutoTracking) {
+        logger.debug('Auto-tracking enabled, activating bookmark');
+        await this.activateBookmark();
+      }
 
       logger.info('UI controls initialization complete');
     } catch (error) {
@@ -181,13 +191,18 @@ export class VideoControls {
    * Clean up resources
    */
   public destroy(): void {
+    logger.debug('Destroying video controls');
     this.stopTimestampUpdates();
     if (this.eventMonitor) {
+      logger.debug('Stopping event monitor');
       this.eventMonitor.stop();
       this.eventMonitor = null;
     }
     this.clearTimers();
-    this.container?.remove();
+    if (this.container) {
+      logger.debug('Removing UI elements');
+      this.container.remove();
+    }
     this.container = null;
     this.bookmarkButton = null;
     this.undoButton = null;
@@ -195,6 +210,7 @@ export class VideoControls {
     this.videoId = null;
     this.isActive = false;
     this.isSaving = false;
+    logger.debug('Video controls destroyed');
   }
 
   /**
@@ -214,7 +230,7 @@ export class VideoControls {
       padding: 0;
       width: 48px;
       height: 48px;
-      display: flex;
+      display: ${this.isAutoTracking ? 'none' : 'flex'};
       align-items: center;
       justify-content: center;
       cursor: pointer;
@@ -253,19 +269,52 @@ export class VideoControls {
     this.timestampDisplay = document.createElement('div');
     this.timestampDisplay.className = 'ytp-time-display';
     this.timestampDisplay.style.cssText = `
+      position: absolute;
+      left: 100%;
+      margin-left: 8px;
       color: #fff;
       font-size: 12px;
-      margin-left: 8px;
-      display: none;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+      white-space: nowrap;
     `;
+
+    // Create auto-track indicator if needed
+    if (this.isAutoTracking) {
+      const autoTrackIndicator = document.createElement('div');
+      autoTrackIndicator.className = 'ytp-button';
+      autoTrackIndicator.style.cssText = `
+        border: none;
+        background: none;
+        padding: 0;
+        width: 48px;
+        height: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+      `;
+      autoTrackIndicator.innerHTML = `
+        <svg height="24" width="24" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15l-5-2.18L7 18V5h10v13z"/>
+          <path d="M12 7v5l4.25 2.52.77-1.28-3.52-2.09V7z"/>
+        </svg>
+      `;
+      this.container.appendChild(autoTrackIndicator);
+    }
 
     // Add elements to container
     this.container.appendChild(this.bookmarkButton);
     this.container.appendChild(this.undoButton);
     this.container.appendChild(this.timestampDisplay);
 
-    // Try to inject the controls into the YouTube player
+    // Inject controls into the player
     this.injectControls();
+
+    // Set initial state
+    if (this.isAutoTracking) {
+      this.container.classList.add(this.config.autoTrackClass);
+    }
   }
 
   /**
@@ -500,8 +549,18 @@ export class VideoControls {
         videoId: this.videoId
       }) as GetVideoStateResponse;
 
-      // If we have an existing bookmark or active video, start tracking
-      if (response.bookmark || response.activeVideo) {
+      // Only start monitoring if:
+      // 1. Auto-tracking is enabled, or
+      // 2. We have an existing bookmark or active video
+      const shouldMonitor = this.isAutoTracking || response.bookmark || response.activeVideo;
+
+      if (shouldMonitor) {
+        logger.debug('Starting event monitoring:', {
+          autoTracking: this.isAutoTracking,
+          hasBookmark: !!response.bookmark,
+          hasActiveVideo: !!response.activeVideo
+        });
+
         // Get the existing timestamps
         const lastTimestamp = response.activeVideo?.lastTimestamp ?? response.bookmark?.lastTimestamp ?? 0;
         const maxTimestamp = response.activeVideo?.maxTimestamp ?? response.bookmark?.maxTimestamp ?? 0;
@@ -527,6 +586,12 @@ export class VideoControls {
             maxTimestamp
           });
         }
+      } else {
+        logger.debug('Event monitoring not started:', {
+          autoTracking: this.isAutoTracking,
+          hasBookmark: !!response.bookmark,
+          hasActiveVideo: !!response.activeVideo
+        });
       }
 
       this.setActive(!!response.activeVideo || !!response.bookmark);
@@ -538,12 +603,35 @@ export class VideoControls {
   /**
    * Start timestamp display updates
    */
-  private startTimestampUpdates(): void {
+  private async startTimestampUpdates(): Promise<void> {
     this.stopTimestampUpdates();
 
-    this.updateInterval = window.setInterval(() => {
-      this.updateTimestamp();
-    }, this.config.updateInterval) as unknown as number;
+    // Only start updates if we're auto-tracking or have an active bookmark
+    const response = await chrome.runtime.sendMessage({
+      type: BackgroundMessageType.GET_VIDEO_STATE,
+      tabId: this.tabId,
+      videoId: this.videoId
+    }) as GetVideoStateResponse;
+
+    const shouldUpdate = this.isAutoTracking || response.bookmark || response.activeVideo;
+    
+    if (shouldUpdate) {
+      logger.debug('Starting timestamp updates:', {
+        autoTracking: this.isAutoTracking,
+        hasBookmark: !!response.bookmark,
+        hasActiveVideo: !!response.activeVideo
+      });
+
+      this.updateInterval = window.setInterval(() => {
+        this.updateTimestamp();
+      }, this.config.updateInterval) as unknown as number;
+    } else {
+      logger.debug('Timestamp updates not started:', {
+        autoTracking: this.isAutoTracking,
+        hasBookmark: !!response.bookmark,
+        hasActiveVideo: !!response.activeVideo
+      });
+    }
   }
 
   /**
@@ -563,6 +651,17 @@ export class VideoControls {
     if (!this.videoId || !this.timestampDisplay) return;
 
     try {
+      // Get current video data to verify ID matches
+      const videoData = await getVideoData(this.tabId);
+      if (!videoData || videoData.id !== this.videoId) {
+        logger.debug('Stopping timestamp updates - video ID mismatch:', {
+          currentId: videoData?.id,
+          expectedId: this.videoId
+        });
+        this.stopTimestampUpdates();
+        return;
+      }
+
       const currentTime = await getCurrentTime(this.tabId);
       const playerState = await getPlayerState(this.tabId);
 
@@ -576,11 +675,14 @@ export class VideoControls {
           tabId: this.tabId,
           videoId: this.videoId,
           timestamp: currentTime,
-          isMaxTimestamp: false
+          isMaxTimestamp: false,
+          source: 'controls'
         });
       }
     } catch (error) {
       logger.error('Failed to update timestamp:', error);
+      // Stop updates if we encounter an error
+      this.stopTimestampUpdates();
     }
   }
 
@@ -627,6 +729,26 @@ export class VideoControls {
   private setError(error: boolean): void {
     if (this.container) {
       this.container.classList.toggle(this.config.errorClass, error);
+    }
+  }
+
+  /**
+   * Set auto-tracking state
+   */
+  private setAutoTracking(enabled: boolean): void {
+    this.isAutoTracking = enabled;
+    if (this.container) {
+      if (enabled) {
+        this.container.classList.add(this.config.autoTrackClass);
+        if (this.bookmarkButton) {
+          this.bookmarkButton.style.display = 'none';
+        }
+      } else {
+        this.container.classList.remove(this.config.autoTrackClass);
+        if (this.bookmarkButton) {
+          this.bookmarkButton.style.display = 'flex';
+        }
+      }
     }
   }
 }
