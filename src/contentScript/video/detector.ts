@@ -94,6 +94,20 @@ export class VideoDetector {
           }
         }
       });
+
+      // Listen for navigation events
+      chrome.runtime.onMessage.addListener((message) => {
+        if (message.type === 'TAB_UPDATED' && message.tabId === this.tabId) {
+          logger.debug('Tab updated, cleaning up controls');
+          if (this.controls) {
+            this.controls.destroy();
+            this.controls = null;
+          }
+          // Don't immediately check for player - let the URL settle first
+          setTimeout(() => this.checkForPlayer(), 100);
+        }
+      });
+
     } catch (error) {
       logger.error('Failed to initialize video detector:', error);
       this.destroy();

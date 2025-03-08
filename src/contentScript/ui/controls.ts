@@ -191,13 +191,18 @@ export class VideoControls {
    * Clean up resources
    */
   public destroy(): void {
+    logger.debug('Destroying video controls');
     this.stopTimestampUpdates();
     if (this.eventMonitor) {
+      logger.debug('Stopping event monitor');
       this.eventMonitor.stop();
       this.eventMonitor = null;
     }
     this.clearTimers();
-    this.container?.remove();
+    if (this.container) {
+      logger.debug('Removing UI elements');
+      this.container.remove();
+    }
     this.container = null;
     this.bookmarkButton = null;
     this.undoButton = null;
@@ -205,6 +210,7 @@ export class VideoControls {
     this.videoId = null;
     this.isActive = false;
     this.isSaving = false;
+    logger.debug('Video controls destroyed');
   }
 
   /**

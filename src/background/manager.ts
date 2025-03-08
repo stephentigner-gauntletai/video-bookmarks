@@ -272,7 +272,7 @@ export class BackgroundManager {
     sendResponse: (response?: any) => void
   ): boolean {
     try {
-      console.debug('[Video Bookmarks] Received message:', { message, sender });
+      console.debug('[Video Bookmarks] Received message:', message.type, { message, sender });
 
       // Special case for GET_TAB_ID message
       if (message.type === BackgroundMessageType.GET_TAB_ID) {
@@ -385,16 +385,32 @@ export class BackgroundManager {
   private async handleVideoDetected(message: VideoDetectedMessage): Promise<void> {
     // Validate video ID from URL
     const urlVideoId = extractVideoId(message.url);
+    const hadVideoIdMismatch = urlVideoId && urlVideoId !== message.videoId;
+
     if (!urlVideoId || urlVideoId !== message.videoId) {
-      console.warn('[Video Bookmarks] Video ID mismatch:', {
+      console.debug('[Video Bookmarks] Video ID mismatch, clearing state:', {
         urlVideoId,
         messageVideoId: message.videoId,
         url: message.url
       });
-      return;
+
+      // Get existing active video if any
+      const existingVideo = this.state.activeVideos.get(message.tabId);
+      if (existingVideo) {
+        // Save the existing video's state before clearing
+        const finalExistingVideo = {
+          ...existingVideo,
+          lastUpdate: Date.now()
+        };
+        await this.saveVideoState(finalExistingVideo);
+        this.state.activeVideos.delete(message.tabId);
+      }
+
+      // Continue with the new video ID from the URL
+      message.videoId = urlVideoId || message.videoId;
     }
 
-    // Get existing active video if any
+    // Get existing active video if any (after potential clear)
     let existingVideo = this.state.activeVideos.get(message.tabId);
     
     // If there's an existing video with a different ID, save and clear it first
@@ -404,7 +420,7 @@ export class BackgroundManager {
         ...existingVideo,
         lastUpdate: Date.now()
       };
-      this.saveVideoState(finalExistingVideo);
+      await this.saveVideoState(finalExistingVideo);
       this.state.activeVideos.delete(message.tabId);
       existingVideo = undefined;
     }
@@ -458,7 +474,8 @@ export class BackgroundManager {
       newVideo: activeVideo,
       hadExistingData: !!existingVideo,
       hadStoredBookmark: storedMaxTimestamp > 0,
-      usedMaxTimestamp: activeVideo.maxTimestamp
+      usedMaxTimestamp: activeVideo.maxTimestamp,
+      clearedDueToMismatch: hadVideoIdMismatch
     });
   }
 
@@ -480,6 +497,13 @@ export class BackgroundManager {
   private async handleUpdateTimestamp(message: UpdateTimestampMessage): Promise<void> {
     const activeVideo = this.state.activeVideos.get(message.tabId);
     if (!activeVideo || activeVideo.id !== message.videoId) {
+      console.debug('[Video Bookmarks] Timestamp update ignored:', !activeVideo 
+        ? 'No active video for tab' 
+        : {
+          mismatch: true,
+          activeVideoId: activeVideo.id,
+          messageVideoId: message.videoId
+        });
       return;
     }
 
@@ -548,6 +572,17 @@ export class BackgroundManager {
         this.saveVideoState(activeVideo);
         // Clear the active video when URL changes
         this.state.activeVideos.delete(tabId);
+
+        // Notify content script of tab update
+        try {
+          chrome.tabs.sendMessage(tabId, {
+            type: 'TAB_UPDATED',
+            tabId
+          });
+        } catch (error) {
+          console.debug('[Video Bookmarks] Failed to notify content script of tab update:', error);
+          // This is expected if the tab is being reloaded
+        }
       }
     }
   }

@@ -35,6 +35,9 @@ class VideoBookmarkContentScript {
       // Wait for the page to load
       await waitForPageLoad();
 
+      // Setup URL change detection for SPAs
+      this.setupUrlChangeDetection();
+      
       // Check if we're on a YouTube video page
       if (!isYouTubeVideoPage()) {
         logger.debug('Not a YouTube video page, skipping initialization');
@@ -45,9 +48,6 @@ class VideoBookmarkContentScript {
 
       // Initialize video detector
       await this.initializeVideoDetector();
-
-      // Setup URL change detection for SPAs
-      this.setupUrlChangeDetection();
 
       logger.info('Content script initialized successfully');      
     } catch (error) {
