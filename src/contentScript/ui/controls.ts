@@ -111,9 +111,9 @@ export class VideoControls {
       logger.debug('Checking video state');
       await this.checkVideoState();
 
-      // Start timestamp updates
+      // Start timestamp updates if needed
       logger.debug('Starting timestamp updates');
-      this.startTimestampUpdates();
+      await this.startTimestampUpdates();
 
       // Setup message listener for deletion events
       this.setupMessageListener();
@@ -549,8 +549,18 @@ export class VideoControls {
         videoId: this.videoId
       }) as GetVideoStateResponse;
 
-      // If we have an existing bookmark or active video, start tracking
-      if (response.bookmark || response.activeVideo) {
+      // Only start monitoring if:
+      // 1. Auto-tracking is enabled, or
+      // 2. We have an existing bookmark or active video
+      const shouldMonitor = this.isAutoTracking || response.bookmark || response.activeVideo;
+
+      if (shouldMonitor) {
+        logger.debug('Starting event monitoring:', {
+          autoTracking: this.isAutoTracking,
+          hasBookmark: !!response.bookmark,
+          hasActiveVideo: !!response.activeVideo
+        });
+
         // Get the existing timestamps
         const lastTimestamp = response.activeVideo?.lastTimestamp ?? response.bookmark?.lastTimestamp ?? 0;
         const maxTimestamp = response.activeVideo?.maxTimestamp ?? response.bookmark?.maxTimestamp ?? 0;
@@ -576,6 +586,12 @@ export class VideoControls {
             maxTimestamp
           });
         }
+      } else {
+        logger.debug('Event monitoring not started:', {
+          autoTracking: this.isAutoTracking,
+          hasBookmark: !!response.bookmark,
+          hasActiveVideo: !!response.activeVideo
+        });
       }
 
       this.setActive(!!response.activeVideo || !!response.bookmark);
@@ -587,12 +603,35 @@ export class VideoControls {
   /**
    * Start timestamp display updates
    */
-  private startTimestampUpdates(): void {
+  private async startTimestampUpdates(): Promise<void> {
     this.stopTimestampUpdates();
 
-    this.updateInterval = window.setInterval(() => {
-      this.updateTimestamp();
-    }, this.config.updateInterval) as unknown as number;
+    // Only start updates if we're auto-tracking or have an active bookmark
+    const response = await chrome.runtime.sendMessage({
+      type: BackgroundMessageType.GET_VIDEO_STATE,
+      tabId: this.tabId,
+      videoId: this.videoId
+    }) as GetVideoStateResponse;
+
+    const shouldUpdate = this.isAutoTracking || response.bookmark || response.activeVideo;
+    
+    if (shouldUpdate) {
+      logger.debug('Starting timestamp updates:', {
+        autoTracking: this.isAutoTracking,
+        hasBookmark: !!response.bookmark,
+        hasActiveVideo: !!response.activeVideo
+      });
+
+      this.updateInterval = window.setInterval(() => {
+        this.updateTimestamp();
+      }, this.config.updateInterval) as unknown as number;
+    } else {
+      logger.debug('Timestamp updates not started:', {
+        autoTracking: this.isAutoTracking,
+        hasBookmark: !!response.bookmark,
+        hasActiveVideo: !!response.activeVideo
+      });
+    }
   }
 
   /**
