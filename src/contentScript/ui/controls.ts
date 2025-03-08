@@ -612,6 +612,17 @@ export class VideoControls {
     if (!this.videoId || !this.timestampDisplay) return;
 
     try {
+      // Get current video data to verify ID matches
+      const videoData = await getVideoData(this.tabId);
+      if (!videoData || videoData.id !== this.videoId) {
+        logger.debug('Stopping timestamp updates - video ID mismatch:', {
+          currentId: videoData?.id,
+          expectedId: this.videoId
+        });
+        this.stopTimestampUpdates();
+        return;
+      }
+
       const currentTime = await getCurrentTime(this.tabId);
       const playerState = await getPlayerState(this.tabId);
 
@@ -631,6 +642,8 @@ export class VideoControls {
       }
     } catch (error) {
       logger.error('Failed to update timestamp:', error);
+      // Stop updates if we encounter an error
+      this.stopTimestampUpdates();
     }
   }
 
