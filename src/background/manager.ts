@@ -502,7 +502,8 @@ export class BackgroundManager {
         : {
           mismatch: true,
           activeVideoId: activeVideo.id,
-          messageVideoId: message.videoId
+          messageVideoId: message.videoId,
+          source: message.source
         });
       return;
     }
@@ -515,7 +516,8 @@ export class BackgroundManager {
       console.debug('[Video Bookmarks] Updating max timestamp:', {
         videoId: message.videoId,
         oldMax: activeVideo.maxTimestamp,
-        newMax: message.timestamp
+        newMax: message.timestamp,
+        source: message.source
       });
       activeVideo.maxTimestamp = message.timestamp;
     }

@@ -89,6 +89,7 @@ export interface UpdateTimestampMessage extends TabBackgroundMessage {
   videoId: string;
   timestamp: number;
   isMaxTimestamp: boolean;
+  source: 'controls' | 'events' | 'state_change';  // Where the update is coming from
 }
 
 /**

@@ -625,7 +625,8 @@ export class VideoControls {
           tabId: this.tabId,
           videoId: this.videoId,
           timestamp: currentTime,
-          isMaxTimestamp: false
+          isMaxTimestamp: false,
+          source: 'controls'
         });
       }
     } catch (error) {

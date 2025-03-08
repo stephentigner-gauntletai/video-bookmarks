@@ -127,7 +127,9 @@ export class VideoEventMonitor {
       type: BackgroundMessageType.UPDATE_TIMESTAMP,
       tabId: this.tabId,
       videoId: videoData.id,
-      timestamp: currentTime
+      timestamp: currentTime,
+      isMaxTimestamp: false,
+      source: 'events'
     });
   }
 
@@ -150,7 +152,9 @@ export class VideoEventMonitor {
           type: BackgroundMessageType.UPDATE_TIMESTAMP,
           tabId: this.tabId,
           videoId: videoData.id,
-          timestamp: videoData.duration
+          timestamp: videoData.duration,
+          isMaxTimestamp: false,
+          source: 'state_change'
         });
         break;
 
