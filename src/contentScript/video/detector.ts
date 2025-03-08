@@ -14,6 +14,7 @@ export class VideoDetector {
   private tabId: number = -1;
   private isInitialized: boolean = false;
   private autoTrackEnabled: boolean = false;
+  private messageListeners: ((message: any, sender: any) => void)[] = [];
 
   private constructor() {}
 
@@ -69,6 +70,24 @@ export class VideoDetector {
   }
 
   /**
+   * Add a message listener that we can clean up later
+   */
+  private addMessageListener(handler: (message: any, sender: any) => void): void {
+    this.messageListeners.push(handler);
+    chrome.runtime.onMessage.addListener(handler);
+  }
+
+  /**
+   * Remove all message listeners
+   */
+  private removeMessageListeners(): void {
+    this.messageListeners.forEach(listener => {
+      chrome.runtime.onMessage.removeListener(listener);
+    });
+    this.messageListeners = [];
+  }
+
+  /**
    * Initialize the detector
    */
   public async initialize(): Promise<void> {
@@ -82,7 +101,7 @@ export class VideoDetector {
       logger.debug('Video detector initialized');
 
       // Listen for auto-track setting changes
-      chrome.runtime.onMessage.addListener((message) => {
+      this.addMessageListener((message) => {
         if (message.type === 'AUTO_TRACK_CHANGED') {
           logger.debug('Auto-track setting changed:', message.enabled);
           this.autoTrackEnabled = message.enabled;
@@ -96,15 +115,13 @@ export class VideoDetector {
       });
 
       // Listen for navigation events
-      chrome.runtime.onMessage.addListener((message) => {
+      this.addMessageListener((message) => {
         if (message.type === 'TAB_UPDATED' && message.tabId === this.tabId) {
-          logger.debug('Tab updated, cleaning up controls');
-          if (this.controls) {
-            this.controls.destroy();
-            this.controls = null;
-          }
-          // Don't immediately check for player - let the URL settle first
-          setTimeout(() => this.checkForPlayer(), 100);
+          logger.debug('Tab updated, cleaning up detector');
+          // Clean up everything
+          this.destroy();
+          // Reinitialize after a short delay
+          setTimeout(() => this.initialize(), 100);
         }
       });
 
@@ -119,11 +136,13 @@ export class VideoDetector {
    * Clean up resources
    */
   public destroy(): void {
+    logger.debug('Destroying video detector');
     this.stopObserving();
     if (this.controls) {
       this.controls.destroy();
       this.controls = null;
     }
+    this.removeMessageListeners();
     this.isInitialized = false;
     logger.debug('Video detector destroyed');
   }
